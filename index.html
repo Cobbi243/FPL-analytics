@@ -67,6 +67,7 @@ const ICONS = {
   crown: <><path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z" /><path d="M5 21h14" /></>,
   activity: <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 2.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 12H2" />,
   link: <><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></>,
+  help: <><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></>,
 };
 
 function Icon({ name, size = 16, className = '', ...props }) {
@@ -1438,6 +1439,56 @@ function ConsistencyView({ players, teams, onPlayerClick }) {
 }
 
 // ============================================================
+// GLOSSARY DRAWER
+// ============================================================
+const GLOSSARY = [
+  { term: 'xG', full: 'Expected Goals · очікувані голи', desc: 'Скільки голів гравець «мав би» забити за якістю своїх моментів. Високий xG при малій кількості голів = не щастить, скоро забиватиме.' },
+  { term: 'xA', full: 'Expected Assists · очікувані асисти', desc: 'Скільки результативних передач гравець «мав би» віддати за якістю своїх пасів під удар.' },
+  { term: 'xGC', full: 'Expected Goals Conceded · очікувані пропущені', desc: 'Скільки голів команда гравця «мала б» пропустити. Низький xGC = більше шансів на «сухар». Важливо для захисників і воротарів.' },
+  { term: 'xP', full: 'Expected Points · очікувані очки', desc: 'Скільки очок FPL гравець «мав би» набрати за підкладковою статистикою (xG, xA, ймовірність сухаря). Порівняння з реальними очками показує, хто перформить вище/нижче свого рівня.' },
+  { term: 'FDR', full: 'Fixture Difficulty Rating · складність матчу', desc: 'Оцінка складності суперника від 1 (дуже легко) до 5 (дуже складно). Зелений = легкий суперник, червоний = важкий.' },
+  { term: 'ICT', full: 'Influence · Creativity · Threat', desc: 'Зведений індекс впливу гравця на гру: вплив на результат, креативність (створення моментів) і загроза (власні моменти).' },
+  { term: 'PPG', full: 'Points Per Game · очки за матч', desc: 'Середня кількість очок за матч за весь сезон. Показує загальний рівень гравця.' },
+  { term: 'Форма', full: 'Form', desc: 'Середня кількість очок за останні матчі (приблизно місяць). Показує, наскільки гравець «гарячий» прямо зараз.' },
+  { term: 'Власність', full: 'Ownership · % selected', desc: 'Який відсоток усіх гравців FPL має цього футболіста. Висока власність = популярний вибір; низька = диференціал.' },
+  { term: 'Диференціал', full: 'Differential', desc: 'Гравець з низькою власністю (зазвичай <10%) і добрим потенціалом. Якщо «вистрелить» — даєш перевагу над суперниками, бо в них його немає.' },
+  { term: 'Цінність', full: 'Value', desc: 'Очки за кожен £1m ціни. Допомагає знайти недорогих гравців, що приносять багато очок (enablers).' },
+  { term: 'Сухар', full: 'Clean Sheet · «суха» гра', desc: 'Матч без пропущених голів. Дає +4 очки захисникам і воротарям, +1 півзахисникам.' },
+  { term: 'Стабільність', full: 'наш показник', desc: 'Зважене поєднання PPG (рівень за сезон) і форми (останні матчі). Високий = гравець стабільно набирає, а не разово «вистрелив».' },
+  { term: 'GW', full: 'Gameweek · ігровий тур', desc: 'Один тур чемпіонату. Сезон APL — 38 турів. Перед кожним туром є дедлайн на зміни складу.' },
+  { term: 'BPS', full: 'Bonus Points System', desc: 'Система, що нараховує бонусні очки (3, 2, 1) найкращим гравцям матчу за статистикою (паси, відбори, удари тощо).' },
+  { term: 'Капітан / VC', full: 'Captain / Vice-captain', desc: 'Очки капітана множаться на 2. Якщо капітан не зіграв — множник переходить на віцекапітана (VC).' },
+];
+
+function GlossaryDrawer({ open, onClose }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md h-full bg-stone-950 border-l border-stone-800 p-6 overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <div className="text-2xl tracking-tight" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>Словник</div>
+            <div className="text-xs text-stone-500 mt-1">Що означають скорочення й метрики</div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-stone-800 rounded-lg"><Icon name="x" size={18} /></button>
+        </div>
+        <div className="space-y-3">
+          {GLOSSARY.map(g => (
+            <div key={g.term} className="p-3 rounded-lg border border-stone-800 bg-stone-900/40">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="font-mono text-lime-400 font-semibold">{g.term}</span>
+                <span className="text-xs text-stone-500">{g.full}</span>
+              </div>
+              <div className="text-sm text-stone-300 mt-1.5 leading-snug" style={{ fontFamily: 'DM Sans, sans-serif' }}>{g.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN APP
 // ============================================================
 function App() {
@@ -1447,6 +1498,7 @@ function App() {
   const [view, setView] = useState('dashboard');
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showGlossary, setShowGlossary] = useState(false);
   const [weights, setWeights] = useState({ form: 1.0, fdr: 0.5, value: 0.0, minutes: 1.0 });
   const [proxyInput, setProxyInput] = useState(() => { try { return localStorage.getItem('custom-proxy') || ''; } catch { return ''; } });
 
@@ -1545,6 +1597,9 @@ function App() {
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={() => setShowGlossary(true)} className="p-2 rounded-lg hover:bg-stone-900 text-stone-400 hover:text-stone-200 transition-colors" title="Словник скорочень">
+                <Icon name="help" size={18} />
+              </button>
               <button onClick={() => setShowSettings(true)} className="p-2 rounded-lg hover:bg-stone-900 text-stone-400 hover:text-stone-200 transition-colors" title="Налаштування">
                 <Icon name="settings" size={18} />
               </button>
@@ -1597,6 +1652,7 @@ function App() {
 
       <PlayerModal player={selectedPlayer} team={selectedPlayer ? teams.find(t => t.id === selectedPlayer.team) : null} fixtures={fixtures} currentGW={currentGW} teams={teams} onClose={() => setSelectedPlayer(null)} />
       <SettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} weights={weights} setWeights={setWeights} />
+      <GlossaryDrawer open={showGlossary} onClose={() => setShowGlossary(false)} />
     </div>
   );
 }
