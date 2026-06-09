@@ -1890,20 +1890,6 @@ function App() {
     </div>
   );
 
-  if (activeLoading && !activeData) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-8">
-        <div className="text-center">
-          <div className="w-12 h-12 border-2 border-stone-800 border-t-lime-500 rounded-full animate-spin mx-auto mb-4" />
-          <div className="text-stone-400" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-            Завантажую дані {mode === 'wc' ? 'FIFA World Cup 2026' : 'FPL'}...
-          </div>
-          <div className="text-xs text-stone-600 mt-2">Це може зайняти 5–15 секунд</div>
-        </div>
-      </div>
-    );
-  }
-
   if (activeError && !activeData) {
     return (
       <div className="min-h-screen flex items-center justify-center p-8">
@@ -1922,6 +1908,23 @@ function App() {
       </div>
     );
   }
+
+  // Show loading whenever the active mode has no data yet — covers both
+  // "fetch in progress" and "just switched mode, fetch not started yet".
+  if (!activeData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8">
+        <div className="text-center">
+          <div className="w-12 h-12 border-2 border-stone-800 border-t-lime-500 rounded-full animate-spin mx-auto mb-4" />
+          <div className="text-stone-400" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+            Завантажую дані {mode === 'wc' ? 'FIFA World Cup 2026' : 'FPL'}...
+          </div>
+          <div className="text-xs text-stone-600 mt-2">Це може зайняти 5–15 секунд</div>
+        </div>
+      </div>
+    );
+  }
+
 
   // Compute mode-specific things
   let view, setView, tabs, headerMeta, mainContent, modal;
