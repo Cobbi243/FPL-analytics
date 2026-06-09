@@ -930,12 +930,17 @@ function expectedPointsForGW(pos, gw) {
 function ConsistencyView({ players, teams, onPlayerClick }) {
   const teamsMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
   const [posFilter, setPosFilter] = useState('all');
+  const [teamFilter, setTeamFilter] = useState('all');
+  const [search, setSearch] = useState('');
   const [minMinutes, setMinMinutes] = useState(900);
 
   const data = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return players
       .filter(p => p.minutes >= minMinutes)
       .filter(p => posFilter === 'all' || p.element_type === Number(posFilter))
+      .filter(p => teamFilter === 'all' || p.team === Number(teamFilter))
+      .filter(p => !q || `${p.first_name} ${p.second_name} ${p.web_name}`.toLowerCase().includes(q))
       .map(p => {
         const ppg = parseFloat(p.points_per_game) || 0;
         const form = parseFloat(p.form) || 0;
@@ -944,7 +949,7 @@ function ConsistencyView({ players, teams, onPlayerClick }) {
         return { ...p, team: teamsMap[p.team], ppg, form, stability };
       })
       .sort((a, b) => b.stability - a.stability);
-  }, [players, teamsMap, posFilter, minMinutes]);
+  }, [players, teamsMap, posFilter, teamFilter, search, minMinutes]);
 
   const top = data.slice(0, 40);
   // Scatter bounds
@@ -962,12 +967,22 @@ function ConsistencyView({ players, teams, onPlayerClick }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[180px]">
+          <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500" />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Пошук за прізвищем..."
+            className="w-full bg-stone-900 border border-stone-800 rounded-lg pl-9 pr-3 py-2 text-sm placeholder:text-stone-600 focus:outline-none focus:border-lime-500/50"
+            style={{ fontFamily: 'DM Sans, sans-serif' }} />
+        </div>
         <select value={posFilter} onChange={e => setPosFilter(e.target.value)} className="bg-stone-900 border border-stone-800 rounded-lg px-3 py-2 text-sm">
           <option value="all">Усі позиції</option>
           <option value="1">Воротарі</option>
           <option value="2">Захисники</option>
           <option value="3">Півзахисники</option>
           <option value="4">Нападники</option>
+        </select>
+        <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)} className="bg-stone-900 border border-stone-800 rounded-lg px-3 py-2 text-sm max-w-[180px]">
+          <option value="all">Усі клуби</option>
+          {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
         <div className="flex items-center gap-2 text-sm text-stone-400">
           Мін. хвилин:
