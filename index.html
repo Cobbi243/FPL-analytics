@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>FPL.UA — Fantasy Premier League Аналітика</title>
-  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231c1713'/><text x='50' y='68' font-family='Georgia,serif' font-size='60' font-weight='600' text-anchor='middle' fill='%239aa861'>F</text></svg>">
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2314181a'/><text x='50' y='68' font-family='Georgia,serif' font-size='60' font-weight='600' text-anchor='middle' fill='%2354b384'>F</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -18,63 +18,63 @@
     .font-mono, code, table { font-family: 'JetBrains Mono', ui-monospace, monospace !important; }
     input[type=range] { height: 4px; }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: #241d18; }
-    ::-webkit-scrollbar-thumb { background: #4a3d33; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #5c4d40; }
+    ::-webkit-scrollbar-track { background: #1a1f20; }
+    ::-webkit-scrollbar-thumb { background: #3a4445; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #49595a; }
     .splash {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      color: #b8aa97; background: #1c1713; flex-direction: column; gap: 16px;
+      color: #9aa6a4; background: #14181a; flex-direction: column; gap: 16px;
       font-family: 'DM Sans', system-ui, sans-serif;
     }
     .splash-spin {
-      width: 40px; height: 40px; border: 2px solid #3a2f27; border-top-color: #9aa861;
+      width: 40px; height: 40px; border: 2px solid #2e3739; border-top-color: #54b384;
       border-radius: 50%; animation: spin 1s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ===================== WARM DARK THEME ===================== */
-    html, body { background: #1c1713 !important; }
+    /* ===================== GREY + GREEN THEME ===================== */
+    html, body { background: #14181a !important; }
 
-    /* Surfaces — warmer + lifted so cards stand out from the page */
-    .bg-stone-950, .bg-stone-950\/95, .bg-stone-950\/80 { background-color: #1c1713 !important; }
-    .bg-stone-950\/50, .bg-stone-950\/40, .bg-stone-950\/30 { background-color: #261f19 !important; }
-    .bg-stone-900\/20, .bg-stone-900\/30, .bg-stone-900\/40 { background-color: #2d251e !important; }
-    .bg-stone-900\/60, .bg-stone-900\/70, .bg-stone-900\/80 { background-color: #352b23 !important; }
-    .bg-stone-900 { background-color: #2d251e !important; }
-    .bg-stone-800 { background-color: #3d3128 !important; }
-    .hover\:bg-stone-900:hover { background-color: #382e26 !important; }
-    .hover\:bg-stone-900\/40:hover, .hover\:bg-stone-900\/50:hover, .hover\:bg-stone-900\/60:hover, .hover\:bg-stone-900\/80:hover { background-color: #382e26 !important; }
-    .hover\:bg-stone-800:hover { background-color: #463a2f !important; }
+    /* Surfaces — cool grey, lifted so cards stand out from the page */
+    .bg-stone-950, .bg-stone-950\/95, .bg-stone-950\/80 { background-color: #14181a !important; }
+    .bg-stone-950\/50, .bg-stone-950\/40, .bg-stone-950\/30 { background-color: #1b2123 !important; }
+    .bg-stone-900\/20, .bg-stone-900\/30, .bg-stone-900\/40 { background-color: #212a2c !important; }
+    .bg-stone-900\/60, .bg-stone-900\/70, .bg-stone-900\/80 { background-color: #283335 !important; }
+    .bg-stone-900 { background-color: #212a2c !important; }
+    .bg-stone-800 { background-color: #2f3b3d !important; }
+    .hover\:bg-stone-900:hover { background-color: #2a3537 !important; }
+    .hover\:bg-stone-900\/40:hover, .hover\:bg-stone-900\/50:hover, .hover\:bg-stone-900\/60:hover, .hover\:bg-stone-900\/80:hover { background-color: #2a3537 !important; }
+    .hover\:bg-stone-800:hover { background-color: #38484a !important; }
 
-    /* Borders — warmer, slightly more visible edges */
-    .border-stone-800 { border-color: #44382e !important; }
-    .border-stone-900 { border-color: #382e26 !important; }
-    .border-stone-700 { border-color: #52443a !important; }
-    .hover\:border-stone-700:hover { border-color: #5c4d40 !important; }
+    /* Borders — cool grey, slightly visible edges */
+    .border-stone-800 { border-color: #313d3f !important; }
+    .border-stone-900 { border-color: #283335 !important; }
+    .border-stone-700 { border-color: #3e4d4f !important; }
+    .hover\:border-stone-700:hover { border-color: #4a5b5d !important; }
 
-    /* Text — warm cream instead of harsh near-white */
-    .text-stone-100 { color: #ece0cf !important; }
-    .text-stone-200 { color: #ddd0bc !important; }
-    .text-stone-300 { color: #c6b7a2 !important; }
+    /* Text — cool light grey instead of harsh near-white */
+    .text-stone-100 { color: #e4ebea !important; }
+    .text-stone-200 { color: #d3dcdb !important; }
+    .text-stone-300 { color: #b2bdbc !important; }
 
-    /* Accent — muted warm sage/olive instead of acid lime */
-    .text-lime-400, .text-lime-500 { color: #b6c081 !important; }
-    .bg-lime-500, .bg-lime-400 { background-color: #9aa861 !important; color: #1f221a !important; }
-    .bg-lime-500\/5 { background-color: rgba(154,168,97,0.07) !important; }
-    .bg-lime-500\/10 { background-color: rgba(154,168,97,0.13) !important; }
-    .bg-lime-950\/20 { background-color: rgba(48,50,30,0.45) !important; }
-    .border-lime-400 { border-color: #9aa861 !important; }
-    .border-lime-500\/20 { border-color: rgba(154,168,97,0.25) !important; }
-    .border-lime-500\/30 { border-color: rgba(154,168,97,0.35) !important; }
-    .border-lime-500\/40 { border-color: rgba(154,168,97,0.42) !important; }
-    .border-lime-500\/50 { border-color: rgba(154,168,97,0.5) !important; }
-    .border-t-lime-500 { border-top-color: #9aa861 !important; }
-    .accent-lime-500 { accent-color: #9aa861 !important; }
-    .from-lime-950\/30 { --tw-gradient-from: rgba(48,50,30,0.4) var(--tw-gradient-from-position) !important; }
-    .to-lime-950\/40 { --tw-gradient-to: rgba(48,50,30,0.4) var(--tw-gradient-to-position) !important; }
-    .hover\:bg-lime-400:hover { background-color: #abba74 !important; }
-    .hover\:text-lime-400:hover { color: #c6cf96 !important; }
-    .hover\:border-lime-500\/30:hover, .hover\:border-lime-500\/40:hover { border-color: rgba(154,168,97,0.42) !important; }
+    /* Accent — soft emerald green (pairs with grey) instead of acid lime */
+    .text-lime-400, .text-lime-500 { color: #6fcd9c !important; }
+    .bg-lime-500, .bg-lime-400 { background-color: #4faf7d !important; color: #0f1a14 !important; }
+    .bg-lime-500\/5 { background-color: rgba(79,175,125,0.08) !important; }
+    .bg-lime-500\/10 { background-color: rgba(79,175,125,0.14) !important; }
+    .bg-lime-950\/20 { background-color: rgba(22,48,34,0.5) !important; }
+    .border-lime-400 { border-color: #4faf7d !important; }
+    .border-lime-500\/20 { border-color: rgba(79,175,125,0.25) !important; }
+    .border-lime-500\/30 { border-color: rgba(79,175,125,0.35) !important; }
+    .border-lime-500\/40 { border-color: rgba(79,175,125,0.45) !important; }
+    .border-lime-500\/50 { border-color: rgba(79,175,125,0.55) !important; }
+    .border-t-lime-500 { border-top-color: #54b384 !important; }
+    .accent-lime-500 { accent-color: #4faf7d !important; }
+    .from-lime-950\/30 { --tw-gradient-from: rgba(22,48,34,0.45) var(--tw-gradient-from-position) !important; }
+    .to-lime-950\/40 { --tw-gradient-to: rgba(22,48,34,0.45) var(--tw-gradient-to-position) !important; }
+    .hover\:bg-lime-400:hover { background-color: #5dc08c !important; }
+    .hover\:text-lime-400:hover { color: #88dab0 !important; }
+    .hover\:border-lime-500\/30:hover, .hover\:border-lime-500\/40:hover { border-color: rgba(79,175,125,0.45) !important; }
   </style>
 </head>
 <body>

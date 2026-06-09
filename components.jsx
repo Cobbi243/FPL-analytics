@@ -760,8 +760,8 @@ function PlayerModal({ player, team, fixtures, currentGW, teams, onClose }) {
           <text key={d.gw} x={sx(d.gw)} y={H - pad + 14} fill="#78716c" fontSize="9" textAnchor="middle" fontFamily="monospace">{d.gw}</text>
         ))}
         <polyline points={xpPts} fill="none" stroke="#fbbf24" strokeWidth="2" strokeDasharray="4 3" opacity="0.85" />
-        <polyline points={actualPts} fill="none" stroke="#b6c081" strokeWidth="2.5" />
-        {chartData.map(d => <circle key={'a'+d.gw} cx={sx(d.gw)} cy={sy(d.actual)} r="3" fill="#b6c081" />)}
+        <polyline points={actualPts} fill="none" stroke="#6fcd9c" strokeWidth="2.5" />
+        {chartData.map(d => <circle key={'a'+d.gw} cx={sx(d.gw)} cy={sy(d.actual)} r="3" fill="#6fcd9c" />)}
         {chartData.map(d => <circle key={'x'+d.gw} cx={sx(d.gw)} cy={sy(d.xp)} r="2.5" fill="#fbbf24" />)}
       </svg>
     );

@@ -77,7 +77,7 @@ function App() {
   return (
     <div className="min-h-screen text-stone-100" style={{ fontFamily: 'DM Sans, sans-serif' }}>
       <div className="fixed inset-0 opacity-30 pointer-events-none" style={{
-        backgroundImage: 'radial-gradient(ellipse at top, rgba(154, 168, 97, 0.06), transparent 55%), radial-gradient(ellipse at bottom right, rgba(180, 130, 80, 0.05), transparent 55%)',
+        backgroundImage: 'radial-gradient(ellipse at top, rgba(79, 175, 125, 0.07), transparent 55%), radial-gradient(ellipse at bottom right, rgba(120, 140, 150, 0.04), transparent 55%)',
       }} />
       <div className="relative">
         <header className="border-b border-stone-800 bg-stone-950/80 backdrop-blur sticky top-0 z-30">
