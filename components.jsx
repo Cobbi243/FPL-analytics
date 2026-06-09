@@ -933,6 +933,7 @@ function ConsistencyView({ players, teams, onPlayerClick }) {
   const [teamFilter, setTeamFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [minMinutes, setMinMinutes] = useState(900);
+  const [hoveredId, setHoveredId] = useState(null);
 
   const data = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -960,10 +961,46 @@ function ConsistencyView({ players, teams, onPlayerClick }) {
   const sy = (v) => H - pad - (v / maxForm) * (H - pad * 2);
   const posColor = { 1: '#fbbf24', 2: '#34d399', 3: '#60a5fa', 4: '#f87171' };
 
+  // Spread overlapping points (jitter) so each is clickable, and de-clutter labels
+  const positioned = (() => {
+    const groups = {};
+    top.forEach(p => {
+      const bx = sx(p.ppg), by = sy(p.form);
+      const key = `${Math.round(bx / 12)}_${Math.round(by / 12)}`;
+      (groups[key] = groups[key] || []).push({ p, bx, by });
+    });
+    const out = [];
+    Object.values(groups).forEach(members => {
+      const n = members.length;
+      members.forEach((m, i) => {
+        let x = m.bx, y = m.by;
+        if (n > 1) {
+          const r = 9 + (n > 3 ? (n - 3) * 2 : 0);
+          const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
+          x = m.bx + Math.cos(ang) * r;
+          y = m.by + Math.sin(ang) * r;
+        }
+        out.push({ p: m.p, x, y });
+      });
+    });
+    // Greedy label placement in stability order — skip labels that would collide
+    const placed = [];
+    top.forEach(tp => {
+      const o = out.find(q => q.p.id === tp.id);
+      if (!o) return;
+      const w = o.p.web_name.length * 5.5 + 6;
+      const box = { x1: o.x + 7, y1: o.y - 6, x2: o.x + 7 + w, y2: o.y + 6 };
+      const hit = placed.some(b => !(box.x2 < b.x1 || box.x1 > b.x2 || box.y2 < b.y1 || box.y1 > b.y2));
+      o.showLabel = !hit;
+      if (!hit) placed.push(box);
+    });
+    return out;
+  })();
+
   return (
     <div className="space-y-5">
       <div className="text-sm text-stone-400" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-        Хто набирає <strong className="text-stone-200">стабільно</strong>. Вісь X — очки за матч за сезон, вісь Y — форма (останні матчі). Гравці у верхньому-правому куті — стабільно сильні. Вище діагоналі — на ході, нижче — спад.
+        Хто набирає <strong className="text-stone-200">стабільно</strong>. Вісь X — очки за матч за сезон, вісь Y — форма (останні матчі). Гравці у верхньому-правому куті — стабільно сильні. Вище діагоналі — на ході, нижче — спад. Наведи на крапку, щоб побачити ім'я; клікни — щоб відкрити картку.
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -1017,11 +1054,26 @@ function ConsistencyView({ players, teams, onPlayerClick }) {
           {/* axis labels */}
           <text x={W/2} y={H-6} fill="#a8a29e" fontSize="12" textAnchor="middle" fontFamily="sans-serif">Очки за матч (сезон) →</text>
           <text x={14} y={H/2} fill="#a8a29e" fontSize="12" textAnchor="middle" fontFamily="sans-serif" transform={`rotate(-90 14 ${H/2})`}>Форма (останні матчі) →</text>
-          {/* points */}
-          {top.map(p => (
-            <g key={p.id} className="cursor-pointer" onClick={() => onPlayerClick(p)}>
-              <circle cx={sx(p.ppg)} cy={sy(p.form)} r="5" fill={posColor[p.element_type]} opacity="0.85" />
-              <text x={sx(p.ppg)+7} y={sy(p.form)+3} fill="#d6d3d1" fontSize="10" fontFamily="sans-serif">{p.web_name}</text>
+          {/* points (jittered; hovered one rendered on top) */}
+          {positioned.map(o => {
+            if (o.p.id === hoveredId) return null;
+            return (
+              <g key={o.p.id} className="cursor-pointer" onClick={() => onPlayerClick(o.p)}
+                 onMouseEnter={() => setHoveredId(o.p.id)} onMouseLeave={() => setHoveredId(null)}>
+                <circle cx={o.x} cy={o.y} r="12" fill="transparent" />
+                <circle cx={o.x} cy={o.y} r="5" fill={posColor[o.p.element_type]} opacity="0.85" />
+                {o.showLabel && <text x={o.x + 7} y={o.y + 3} fill="#9aa6a4" fontSize="10" fontFamily="sans-serif">{o.p.web_name}</text>}
+              </g>
+            );
+          })}
+          {positioned.filter(o => o.p.id === hoveredId).map(o => (
+            <g key={'h' + o.p.id} className="cursor-pointer" onClick={() => onPlayerClick(o.p)}
+               onMouseEnter={() => setHoveredId(o.p.id)} onMouseLeave={() => setHoveredId(null)}>
+              <circle cx={o.x} cy={o.y} r="12" fill="transparent" />
+              <circle cx={o.x} cy={o.y} r="9" fill="none" stroke={posColor[o.p.element_type]} strokeWidth="2" opacity="0.55" />
+              <circle cx={o.x} cy={o.y} r="6" fill={posColor[o.p.element_type]} />
+              <rect x={o.x + 8} y={o.y - 9} width={o.p.web_name.length * 6.2 + 12} height="18" rx="4" fill="#0e1315" opacity="0.95" stroke="#3e4d4f" strokeWidth="1" />
+              <text x={o.x + 13} y={o.y + 4} fill="#e4ebea" fontSize="11" fontWeight="600" fontFamily="sans-serif">{o.p.web_name}</text>
             </g>
           ))}
         </svg>
