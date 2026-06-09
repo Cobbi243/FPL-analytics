@@ -93,6 +93,7 @@ const FDR_COLORS = {
 };
 
 const PROXIES = [
+  { url: (u) => `https://fpl-proxy.ybolshakov96.workers.dev/?url=${encodeURIComponent(u)}`, type: 'raw' },
   { url: (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, type: 'raw' },
   { url: (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`, type: 'raw' },
   { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`, type: 'raw' },
