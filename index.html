@@ -93,9 +93,11 @@ const FDR_COLORS = {
 };
 
 const PROXIES = [
-  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+  { url: (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, type: 'raw' },
+  { url: (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`, type: 'raw' },
+  { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`, type: 'raw' },
+  { url: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`, type: 'wrapped' },
+  { url: (u) => `https://thingproxy.freeboard.io/fetch/${u}`, type: 'raw' },
 ];
 
 const FPL_API = 'https://fantasy.premierleague.com/api';
@@ -133,9 +135,20 @@ async function fetchWithProxy(url) {
   let lastErr;
   for (const proxy of PROXIES) {
     try {
-      const res = await fetch(proxy(url), { cache: 'no-store' });
+      const res = await fetch(proxy.url(url), { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      let text = await res.text();
+      // Some proxies wrap the payload in { contents: "..." }
+      if (proxy.type === 'wrapped') {
+        const wrapper = JSON.parse(text);
+        text = wrapper.contents;
+      }
+      const trimmed = (text || '').trim();
+      // Reject HTML error pages — only accept real JSON
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        throw new Error('Проксі віддав не JSON (ймовірно HTML-помилку)');
+      }
+      return JSON.parse(trimmed);
     } catch (e) {
       lastErr = e;
     }
