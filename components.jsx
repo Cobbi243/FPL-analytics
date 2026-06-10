@@ -1260,34 +1260,71 @@ function MyTeamView({ players, teams, events, onPlayerClick }) {
   const chips = history.chips || [];
   const past = history.past || [];
 
-  // --- Графік рангу (лог-шкала, менший ранг = вище) ---
+  // --- Графік рангу (адаптивна шкала, зрозумілі позначки, краще = вище) ---
   let rankChart = null;
   if (cur.length >= 2) {
-    const W = 700, H = 220, pad = 40;
+    const W = 700, H = 240, padL = 56, padR = 70, padT = 28, padB = 34;
     const ranks = cur.map(h => h.overall_rank);
-    const lmin = Math.log10(Math.min(...ranks)), lmax = Math.log10(Math.max(...ranks));
-    const range = (lmax - lmin) || 1;
-    const sx = i => pad + (i / (cur.length - 1)) * (W - pad * 2);
-    const sy = r => pad + ((Math.log10(r) - lmin) / range) * (H - pad * 2);
-    const pts = cur.map((h, i) => `${sx(i)},${sy(h.overall_rank)}`).join(' ');
     const best = Math.min(...ranks), worst = Math.max(...ranks);
+    // Лог-шкала тільки коли діапазон величезний (ранги стрибають у рази), інакше лінійна
+    const useLog = worst / Math.max(1, best) > 10;
+    const tf = useLog ? Math.log10 : (v => v);
+    const vMin = tf(best), vMax = tf(worst);
+    const range = (vMax - vMin) || 1;
+    const sx = i => padL + (i / (cur.length - 1)) * (W - padL - padR);
+    const sy = r => padT + ((tf(r) - vMin) / range) * (H - padT - padB);
+    const pts = cur.map((h, i) => `${sx(i)},${sy(h.overall_rank)}`).join(' ');
+
+    const fmtRank = v => v >= 1e6 ? (v / 1e6).toFixed(1).replace('.0','') + ' млн'
+      : v >= 10000 ? Math.round(v / 1000).toLocaleString('uk-UA') + ' тис'
+      : Math.round(v).toLocaleString('uk-UA');
+
+    // 4 рівні горизонтальні лінії сітки з підписами рангу
+    const ticks = [0, 1/3, 2/3, 1].map(t => {
+      const tv = vMin + t * range;
+      const r = useLog ? Math.pow(10, tv) : tv;
+      return { y: padT + t * (H - padT - padB), label: fmtRank(r) };
+    });
+
+    const last = cur[cur.length - 1];
+
     rankChart = (
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-        <text x={pad - 6} y={pad + 4} fill="#6fcd9c" fontSize="10" textAnchor="end" fontFamily="monospace">{best.toLocaleString('uk-UA')}</text>
-        <text x={pad - 6} y={H - pad + 4} fill="#78716c" fontSize="10" textAnchor="end" fontFamily="monospace">{worst.toLocaleString('uk-UA')}</text>
-        <line x1={pad} y1={pad} x2={W - pad} y2={pad} stroke="#283335" strokeWidth="1" />
-        <line x1={pad} y1={H - pad} x2={W - pad} y2={H - pad} stroke="#283335" strokeWidth="1" />
-        {cur.map((h, i) => i % 5 === 0 && (
-          <text key={i} x={sx(i)} y={H - pad + 16} fill="#78716c" fontSize="9" textAnchor="middle" fontFamily="monospace">GW{h.event}</text>
+        {/* сітка з підписами рангу */}
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line x1={padL} y1={t.y} x2={W - padR} y2={t.y} stroke="#283335" strokeWidth="1" strokeDasharray={i === 0 || i === ticks.length - 1 ? '' : '3 4'} />
+            <text x={padL - 8} y={t.y + 3.5} fill="#8a9694" fontSize="10" textAnchor="end" fontFamily="monospace">{t.label}</text>
+          </g>
         ))}
+        {/* підпис осі */}
+        <text x={14} y={H / 2} fill="#8a9694" fontSize="10" textAnchor="middle" fontFamily="sans-serif" transform={`rotate(-90 14 ${H / 2})`}>↑ кращий ранг</text>
+        {/* тури по X */}
+        {cur.map((h, i) => i % 5 === 0 && (
+          <text key={i} x={sx(i)} y={H - padB + 16} fill="#78716c" fontSize="9" textAnchor="middle" fontFamily="monospace">GW{h.event}</text>
+        ))}
+        {/* лінія рангу */}
         <polyline points={pts} fill="none" stroke="#6fcd9c" strokeWidth="2.5" />
-        {cur.map((h, i) => <circle key={i} cx={sx(i)} cy={sy(h.overall_rank)} r="2.5" fill="#6fcd9c" />)}
+        {/* точки з підказками при наведенні */}
+        {cur.map((h, i) => (
+          <circle key={i} cx={sx(i)} cy={sy(h.overall_rank)} r="3" fill="#6fcd9c" className="cursor-pointer">
+            <title>{`GW${h.event}\nРанг: ${h.overall_rank.toLocaleString('uk-UA')}\nОчки за тур: ${h.points}`}</title>
+          </circle>
+        ))}
+        {/* фінальний ранг біля кінця лінії */}
+        <g>
+          <rect x={sx(cur.length - 1) + 8} y={sy(last.overall_rank) - 10} width={padR - 14} height="20" rx="4" fill="#0e1315" stroke="#3e4d4f" strokeWidth="1" />
+          <text x={sx(cur.length - 1) + 8 + (padR - 14) / 2} y={sy(last.overall_rank) + 4} fill="#6fcd9c" fontSize="10" textAnchor="middle" fontFamily="monospace">{fmtRank(last.overall_rank)}</text>
+        </g>
+        {/* чипи */}
         {chips.map(ch => {
           const idx = cur.findIndex(h => h.event === ch.event);
           if (idx < 0) return null;
           return (
             <g key={ch.name + ch.event}>
-              <circle cx={sx(idx)} cy={sy(cur[idx].overall_rank)} r="6" fill="none" stroke="#fbbf24" strokeWidth="1.5" />
+              <circle cx={sx(idx)} cy={sy(cur[idx].overall_rank)} r="6" fill="none" stroke="#fbbf24" strokeWidth="1.5">
+                <title>{`${CHIP_NAMES[ch.name] || ch.name} — GW${ch.event}`}</title>
+              </circle>
               <text x={sx(idx)} y={sy(cur[idx].overall_rank) - 10} fill="#fbbf24" fontSize="8" textAnchor="middle">{CHIP_NAMES[ch.name] || ch.name}</text>
             </g>
           );
@@ -1337,7 +1374,7 @@ function MyTeamView({ players, teams, events, onPlayerClick }) {
       {/* Rank chart */}
       {rankChart && (
         <div>
-          <div className="text-sm uppercase tracking-wider text-stone-400 mb-3" style={{ fontFamily: 'DM Sans, sans-serif' }}>Ранг упродовж сезону <span className="text-stone-600 normal-case">(вище = краще, жовті кільця — зіграні чипи)</span></div>
+          <div className="text-sm uppercase tracking-wider text-stone-400 mb-3" style={{ fontFamily: 'DM Sans, sans-serif' }}>Загальний ранг упродовж сезону <span className="text-stone-600 normal-case">(лінія вгору = ранг покращується · наведи на точку для деталей · жовті кільця — зіграні чипи)</span></div>
           <div className="rounded-xl border border-stone-800 bg-stone-900/30 p-4">{rankChart}</div>
         </div>
       )}
