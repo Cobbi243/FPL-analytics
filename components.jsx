@@ -1187,6 +1187,15 @@ function MyTeamView({ players, teams, events, onPlayerClick }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [top10k, setTop10k] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadTop10k()
+      .then(d => { if (!cancelled) setTop10k(d); })
+      .catch(() => { if (!cancelled) setTop10k([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const lastGW = useMemo(() => {
     const f = [...events].reverse().find(e => e.finished);
@@ -1333,24 +1342,28 @@ function MyTeamView({ players, teams, events, onPlayerClick }) {
     );
   }
 
-  // --- Графік очок за тур: мої vs середні по грі ---
+  // --- Графік очок за тур: мої vs середні по грі vs топ-10k ---
   let pointsChart = null;
   let beatenSummary = null;
   if (cur.length >= 2) {
     const avgMap = Object.fromEntries(events.filter(e => e.average_entry_score != null).map(e => [e.id, e.average_entry_score]));
-    const pdata = cur.map(h => ({ gw: h.event, mine: h.points, hits: h.event_transfers_cost || 0, avg: avgMap[h.event] ?? null }));
+    const t10Map = Object.fromEntries((top10k || []).map(r => [r.event, r.avg]));
+    const pdata = cur.map(h => ({ gw: h.event, mine: h.points, hits: h.event_transfers_cost || 0, avg: avgMap[h.event] ?? null, t10: t10Map[h.event] ?? null }));
     const withAvg = pdata.filter(d => d.avg !== null);
     const beaten = withAvg.filter(d => d.mine > d.avg).length;
     const equal = withAvg.filter(d => d.mine === d.avg).length;
-    beatenSummary = { beaten, equal, total: withAvg.length };
+    const withT10 = pdata.filter(d => d.t10 !== null);
+    const beatenT10 = withT10.filter(d => d.mine > d.t10).length;
+    beatenSummary = { beaten, equal, total: withAvg.length, beatenT10, totalT10: withT10.length };
 
     const W = 700, H = 200, padL = 40, padR = 16, padT = 16, padB = 30;
-    const allVals = pdata.flatMap(d => [d.mine, d.avg]).filter(v => v !== null);
+    const allVals = pdata.flatMap(d => [d.mine, d.avg, d.t10]).filter(v => v !== null);
     const yMax = Math.max(...allVals) + 5;
     const sx = i => padL + (i / (pdata.length - 1)) * (W - padL - padR);
     const sy = v => H - padB - (v / yMax) * (H - padT - padB);
     const minePts = pdata.map((d, i) => `${sx(i)},${sy(d.mine)}`).join(' ');
     const avgPts = pdata.filter(d => d.avg !== null).map((d) => `${sx(pdata.indexOf(d))},${sy(d.avg)}`).join(' ');
+    const t10Pts = pdata.filter(d => d.t10 !== null).map((d) => `${sx(pdata.indexOf(d))},${sy(d.t10)}`).join(' ');
     const yTicks = [0, Math.round(yMax / 3), Math.round(yMax * 2 / 3), Math.round(yMax)];
 
     pointsChart = (
@@ -1364,13 +1377,14 @@ function MyTeamView({ players, teams, events, onPlayerClick }) {
         {pdata.map((d, i) => i % 5 === 0 && (
           <text key={i} x={sx(i)} y={H - padB + 16} fill="#78716c" fontSize="9" textAnchor="middle" fontFamily="monospace">GW{d.gw}</text>
         ))}
+        {t10Pts && <polyline points={t10Pts} fill="none" stroke="#38bdf8" strokeWidth="2" strokeDasharray="2 3" opacity="0.85" />}
         <polyline points={avgPts} fill="none" stroke="#fbbf24" strokeWidth="2" strokeDasharray="5 4" opacity="0.8" />
         <polyline points={minePts} fill="none" stroke="#6fcd9c" strokeWidth="2.5" />
         {pdata.map((d, i) => (
           <circle key={i} cx={sx(i)} cy={sy(d.mine)} r="3.5"
             fill={d.avg !== null ? (d.mine > d.avg ? '#6fcd9c' : d.mine < d.avg ? '#f87171' : '#a8a29e') : '#6fcd9c'}
             className="cursor-pointer">
-            <title>{`GW${d.gw}\nТвої очки: ${d.mine}${d.hits ? ` (мінуси за трансфери: -${d.hits})` : ''}\nСереднє по грі: ${d.avg ?? '—'}\n${d.avg !== null ? (d.mine > d.avg ? `Вище середнього на ${d.mine - d.avg}` : d.mine < d.avg ? `Нижче середнього на ${d.avg - d.mine}` : 'Рівно середнє') : ''}`}</title>
+            <title>{`GW${d.gw}\nТвої очки: ${d.mine}${d.hits ? ` (мінуси за трансфери: -${d.hits})` : ''}\nСереднє по грі: ${d.avg ?? '—'}\nТоп-10k (оцінка): ${d.t10 !== null ? d.t10.toFixed(1) : '—'}\n${d.avg !== null ? (d.mine > d.avg ? `Вище середнього на ${d.mine - d.avg}` : d.mine < d.avg ? `Нижче середнього на ${d.avg - d.mine}` : 'Рівно середнє') : ''}`}</title>
           </circle>
         ))}
       </svg>
@@ -1430,18 +1444,19 @@ function MyTeamView({ players, teams, events, onPlayerClick }) {
             <div className="text-sm uppercase tracking-wider text-stone-400" style={{ fontFamily: 'DM Sans, sans-serif' }}>
               Очки за тур: ти проти середнього по грі
             </div>
-            <div className="flex items-center gap-4 text-[11px]">
+            <div className="flex items-center gap-4 text-[11px] flex-wrap">
               <span className="flex items-center gap-1.5 text-lime-400"><span className="w-4 h-0.5 bg-lime-400 inline-block rounded" />твої очки</span>
               <span className="flex items-center gap-1.5 text-amber-400"><span className="w-4 h-0 border-t-2 border-dashed border-amber-400 inline-block" />середнє по грі</span>
+              <span className="flex items-center gap-1.5 text-sky-400"><span className="w-4 h-0 border-t-2 border-dotted border-sky-400 inline-block" />топ-10k (оцінка)</span>
             </div>
           </div>
           <div className="rounded-xl border border-stone-800 bg-stone-900/30 p-4">
             {pointsChart}
             {beatenSummary && (
               <div className="mt-2 text-xs text-stone-400 text-center" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-                Ти обіграв середнє у <span className="font-mono text-lime-400">{beatenSummary.beaten}</span> з <span className="font-mono text-stone-200">{beatenSummary.total}</span> турів
-                {beatenSummary.equal > 0 && <span> (ще {beatenSummary.equal} — внічию)</span>}
-                {' '}· зелені точки — тури вище середнього, червоні — нижче
+                Обіграв середнє у <span className="font-mono text-lime-400">{beatenSummary.beaten}</span> з <span className="font-mono text-stone-200">{beatenSummary.total}</span> турів
+                {beatenSummary.totalT10 > 0 && <span> · обіграв топ-10k у <span className="font-mono text-sky-400">{beatenSummary.beatenT10}</span> з <span className="font-mono text-stone-200">{beatenSummary.totalT10}</span></span>}
+                {' '}· топ-10k — наша вибіркова оцінка (~150 менеджерів з фінального топ-10k)
               </div>
             )}
           </div>

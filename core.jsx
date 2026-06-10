@@ -94,6 +94,11 @@ async function loadPlayerFeed(playerId) {
   return fetchFromBackend(`/api/feed/player/${playerId}`);
 }
 
+// Середні очки топ-10k по турах (вибіркова оцінка з нашого сервера)
+async function loadTop10k() {
+  return fetchFromBackend('/api/top10k');
+}
+
 // Завантаження реальної команди користувача за FPL ID (entry id)
 async function loadMyTeam(entryId, fallbackGW) {
   const [entry, history] = await Promise.all([
