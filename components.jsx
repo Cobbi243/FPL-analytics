@@ -1333,6 +1333,50 @@ function MyTeamView({ players, teams, events, onPlayerClick }) {
     );
   }
 
+  // --- Графік очок за тур: мої vs середні по грі ---
+  let pointsChart = null;
+  let beatenSummary = null;
+  if (cur.length >= 2) {
+    const avgMap = Object.fromEntries(events.filter(e => e.average_entry_score != null).map(e => [e.id, e.average_entry_score]));
+    const pdata = cur.map(h => ({ gw: h.event, mine: h.points, hits: h.event_transfers_cost || 0, avg: avgMap[h.event] ?? null }));
+    const withAvg = pdata.filter(d => d.avg !== null);
+    const beaten = withAvg.filter(d => d.mine > d.avg).length;
+    const equal = withAvg.filter(d => d.mine === d.avg).length;
+    beatenSummary = { beaten, equal, total: withAvg.length };
+
+    const W = 700, H = 200, padL = 40, padR = 16, padT = 16, padB = 30;
+    const allVals = pdata.flatMap(d => [d.mine, d.avg]).filter(v => v !== null);
+    const yMax = Math.max(...allVals) + 5;
+    const sx = i => padL + (i / (pdata.length - 1)) * (W - padL - padR);
+    const sy = v => H - padB - (v / yMax) * (H - padT - padB);
+    const minePts = pdata.map((d, i) => `${sx(i)},${sy(d.mine)}`).join(' ');
+    const avgPts = pdata.filter(d => d.avg !== null).map((d) => `${sx(pdata.indexOf(d))},${sy(d.avg)}`).join(' ');
+    const yTicks = [0, Math.round(yMax / 3), Math.round(yMax * 2 / 3), Math.round(yMax)];
+
+    pointsChart = (
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+        {yTicks.map((t, i) => (
+          <g key={i}>
+            <line x1={padL} y1={sy(t)} x2={W - padR} y2={sy(t)} stroke="#283335" strokeWidth="1" strokeDasharray={i === 0 ? '' : '3 4'} />
+            <text x={padL - 6} y={sy(t) + 3.5} fill="#8a9694" fontSize="10" textAnchor="end" fontFamily="monospace">{t}</text>
+          </g>
+        ))}
+        {pdata.map((d, i) => i % 5 === 0 && (
+          <text key={i} x={sx(i)} y={H - padB + 16} fill="#78716c" fontSize="9" textAnchor="middle" fontFamily="monospace">GW{d.gw}</text>
+        ))}
+        <polyline points={avgPts} fill="none" stroke="#fbbf24" strokeWidth="2" strokeDasharray="5 4" opacity="0.8" />
+        <polyline points={minePts} fill="none" stroke="#6fcd9c" strokeWidth="2.5" />
+        {pdata.map((d, i) => (
+          <circle key={i} cx={sx(i)} cy={sy(d.mine)} r="3.5"
+            fill={d.avg !== null ? (d.mine > d.avg ? '#6fcd9c' : d.mine < d.avg ? '#f87171' : '#a8a29e') : '#6fcd9c'}
+            className="cursor-pointer">
+            <title>{`GW${d.gw}\nТвої очки: ${d.mine}${d.hits ? ` (мінуси за трансфери: -${d.hits})` : ''}\nСереднє по грі: ${d.avg ?? '—'}\n${d.avg !== null ? (d.mine > d.avg ? `Вище середнього на ${d.mine - d.avg}` : d.mine < d.avg ? `Нижче середнього на ${d.avg - d.mine}` : 'Рівно середнє') : ''}`}</title>
+          </circle>
+        ))}
+      </svg>
+    );
+  }
+
   // --- Склад останнього туру ---
   const squadPicks = (picks?.picks || []).map(pk => ({ ...pk, player: playersMap[pk.element] })).filter(pk => pk.player);
   const startingXI = squadPicks.filter(pk => pk.position <= 11);
@@ -1376,6 +1420,31 @@ function MyTeamView({ players, teams, events, onPlayerClick }) {
         <div>
           <div className="text-sm uppercase tracking-wider text-stone-400 mb-3" style={{ fontFamily: 'DM Sans, sans-serif' }}>Загальний ранг упродовж сезону <span className="text-stone-600 normal-case">(лінія вгору = ранг покращується · наведи на точку для деталей · жовті кільця — зіграні чипи)</span></div>
           <div className="rounded-xl border border-stone-800 bg-stone-900/30 p-4">{rankChart}</div>
+        </div>
+      )}
+
+      {/* Points vs average chart */}
+      {pointsChart && (
+        <div>
+          <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+            <div className="text-sm uppercase tracking-wider text-stone-400" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+              Очки за тур: ти проти середнього по грі
+            </div>
+            <div className="flex items-center gap-4 text-[11px]">
+              <span className="flex items-center gap-1.5 text-lime-400"><span className="w-4 h-0.5 bg-lime-400 inline-block rounded" />твої очки</span>
+              <span className="flex items-center gap-1.5 text-amber-400"><span className="w-4 h-0 border-t-2 border-dashed border-amber-400 inline-block" />середнє по грі</span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-stone-800 bg-stone-900/30 p-4">
+            {pointsChart}
+            {beatenSummary && (
+              <div className="mt-2 text-xs text-stone-400 text-center" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                Ти обіграв середнє у <span className="font-mono text-lime-400">{beatenSummary.beaten}</span> з <span className="font-mono text-stone-200">{beatenSummary.total}</span> турів
+                {beatenSummary.equal > 0 && <span> (ще {beatenSummary.equal} — внічию)</span>}
+                {' '}· зелені точки — тури вище середнього, червоні — нижче
+              </div>
+            )}
+          </div>
         </div>
       )}
 
