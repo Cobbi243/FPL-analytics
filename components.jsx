@@ -711,6 +711,7 @@ function PlayerModal({ player, team, fixtures, currentGW, teams, onClose }) {
   const [history, setHistory] = useState(null);
   const [loadingHist, setLoadingHist] = useState(false);
   const [snapshots, setSnapshots] = useState(null);
+  const [mediaItems, setMediaItems] = useState(null);
 
   useEffect(() => {
     if (!player) return;
@@ -718,6 +719,7 @@ function PlayerModal({ player, team, fixtures, currentGW, teams, onClose }) {
     setHistory(null);
     setLoadingHist(true);
     setSnapshots(null);
+    setMediaItems(null);
     fetchWithProxy(`${FPL_API}/element-summary/${player.id}/`)
       .then(d => { if (!cancelled) setHistory((d.history || []).filter(h => h.minutes > 0)); })
       .catch(() => { if (!cancelled) setHistory([]); })
@@ -725,6 +727,9 @@ function PlayerModal({ player, team, fixtures, currentGW, teams, onClose }) {
     loadPlayerSnapshots(player.id)
       .then(s => { if (!cancelled) setSnapshots(s); })
       .catch(() => { if (!cancelled) setSnapshots([]); });
+    loadPlayerFeed(player.id)
+      .then(m => { if (!cancelled) setMediaItems(m); })
+      .catch(() => { if (!cancelled) setMediaItems([]); });
     return () => { cancelled = true; };
   }, [player]);
 
@@ -890,6 +895,22 @@ function PlayerModal({ player, team, fixtures, currentGW, teams, onClose }) {
                 ))}
             </div>
           </div>
+
+          {/* Media mentions from expert feed */}
+          {mediaItems && mediaItems.length > 0 && (
+            <div>
+              <div className="text-sm uppercase tracking-wider text-stone-500 mb-2" style={{ fontFamily: 'DM Sans, sans-serif' }}>Згадки в медіа</div>
+              <div className="space-y-1.5">
+                {mediaItems.slice(0, 5).map(m => (
+                  <a key={m.link} href={m.link} target="_blank" rel="noopener noreferrer" className="block p-2.5 rounded-lg border border-stone-800 bg-stone-900/30 hover:border-lime-500/30 transition-colors">
+                    <div className="text-[10px] uppercase tracking-wider text-lime-400/70 mb-0.5">{m.source} · {timeAgo(m.published)}</div>
+                    <div className="text-sm text-stone-300 leading-snug" style={{ fontFamily: 'DM Sans, sans-serif' }}>{m.title} <Icon name="link" size={10} className="inline text-stone-600" /></div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             <div className="p-3 rounded-lg border border-stone-800 bg-stone-900/40">
               <div className="text-stone-500 text-xs uppercase tracking-wider mb-1">Хвилин</div>
@@ -1148,6 +1169,310 @@ function ConsistencyView({ players, teams, onPlayerClick }) {
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MY TEAM VIEW (реальна команда користувача за FPL ID)
+// ============================================================
+const CHIP_NAMES = { wildcard: 'Wildcard', '3xc': 'Triple Captain', bboost: 'Bench Boost', freehit: 'Free Hit', manager: 'Assistant Manager' };
+
+function MyTeamView({ players, teams, events, onPlayerClick }) {
+  const teamsMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
+  const playersMap = useMemo(() => Object.fromEntries(players.map(p => [p.id, p])), [players]);
+  const [entryId, setEntryId] = useState(() => { try { return localStorage.getItem('my-fpl-id') || ''; } catch { return ''; } });
+  const [inputVal, setInputVal] = useState(() => { try { return localStorage.getItem('my-fpl-id') || ''; } catch { return ''; } });
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const lastGW = useMemo(() => {
+    const f = [...events].reverse().find(e => e.finished);
+    return f ? f.id : 1;
+  }, [events]);
+
+  const load = useCallback(async (id) => {
+    setLoading(true); setError(null); setData(null);
+    try {
+      const d = await loadMyTeam(id, lastGW);
+      setData(d);
+    } catch (e) {
+      setError('Не вдалося завантажити команду. Перевір ID: це число з адреси сторінки Points на fantasy.premierleague.com (/entry/ЧИСЛО/).');
+    } finally { setLoading(false); }
+  }, [lastGW]);
+
+  useEffect(() => { if (entryId) load(entryId); }, []); // eslint-disable-line
+
+  const submit = () => {
+    const v = inputVal.trim().replace(/\D/g, '');
+    if (!v) return;
+    setEntryId(v);
+    try { localStorage.setItem('my-fpl-id', v); } catch {}
+    load(v);
+  };
+
+  // --- Екран вводу ID ---
+  if (!entryId || (!data && !loading && !error)) {
+    return (
+      <div className="max-w-lg mx-auto py-10">
+        <div className="text-2xl mb-2 text-center" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>Підключи свою команду</div>
+        <div className="text-sm text-stone-400 text-center mb-6" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+          Введи свій FPL ID — і побачиш свій склад, ранг та історію сезону. ID зберігається тільки у твоєму браузері.
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text" inputMode="numeric" value={inputVal}
+            onChange={e => setInputVal(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submit()}
+            placeholder="напр. 1234567"
+            className="flex-1 bg-stone-900 border border-stone-800 rounded-lg px-4 py-3 text-lg font-mono placeholder:text-stone-600 focus:outline-none focus:border-lime-500/50"
+          />
+          <button onClick={submit} className="px-5 py-3 bg-lime-500 text-stone-950 font-semibold rounded-lg hover:bg-lime-400 transition-colors">Показати</button>
+        </div>
+        <div className="mt-6 p-4 rounded-lg border border-stone-800 bg-stone-900/40 text-sm text-stone-400 leading-relaxed" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+          <div className="font-semibold text-stone-300 mb-1">Де взяти ID?</div>
+          Зайди на fantasy.premierleague.com → вкладка <span className="text-stone-200">Points</span>. У адресному рядку буде <span className="font-mono text-stone-300">/entry/<span className="text-lime-400">1234567</span>/event/...</span> — оце число і є твій ID.
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) return <div className="p-12 text-center text-stone-500 text-sm">Завантажую команду #{entryId}...</div>;
+
+  if (error) {
+    return (
+      <div className="max-w-lg mx-auto py-10 text-center">
+        <Icon name="alert" size={40} className="mx-auto text-red-500 mb-4" />
+        <div className="text-stone-300 mb-5">{error}</div>
+        <div className="flex gap-2 justify-center">
+          <input type="text" inputMode="numeric" value={inputVal} onChange={e => setInputVal(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()}
+            className="bg-stone-900 border border-stone-800 rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-lime-500/50" />
+          <button onClick={submit} className="px-4 py-2 bg-lime-500 text-stone-950 font-semibold rounded-lg">Спробувати</button>
+        </div>
+      </div>
+    );
+  }
+
+  const { entry, history, picks, picksGW } = data;
+  const cur = (history.current || []).filter(h => h.overall_rank);
+  const chips = history.chips || [];
+  const past = history.past || [];
+
+  // --- Графік рангу (лог-шкала, менший ранг = вище) ---
+  let rankChart = null;
+  if (cur.length >= 2) {
+    const W = 700, H = 220, pad = 40;
+    const ranks = cur.map(h => h.overall_rank);
+    const lmin = Math.log10(Math.min(...ranks)), lmax = Math.log10(Math.max(...ranks));
+    const range = (lmax - lmin) || 1;
+    const sx = i => pad + (i / (cur.length - 1)) * (W - pad * 2);
+    const sy = r => pad + ((Math.log10(r) - lmin) / range) * (H - pad * 2);
+    const pts = cur.map((h, i) => `${sx(i)},${sy(h.overall_rank)}`).join(' ');
+    const best = Math.min(...ranks), worst = Math.max(...ranks);
+    rankChart = (
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+        <text x={pad - 6} y={pad + 4} fill="#6fcd9c" fontSize="10" textAnchor="end" fontFamily="monospace">{best.toLocaleString('uk-UA')}</text>
+        <text x={pad - 6} y={H - pad + 4} fill="#78716c" fontSize="10" textAnchor="end" fontFamily="monospace">{worst.toLocaleString('uk-UA')}</text>
+        <line x1={pad} y1={pad} x2={W - pad} y2={pad} stroke="#283335" strokeWidth="1" />
+        <line x1={pad} y1={H - pad} x2={W - pad} y2={H - pad} stroke="#283335" strokeWidth="1" />
+        {cur.map((h, i) => i % 5 === 0 && (
+          <text key={i} x={sx(i)} y={H - pad + 16} fill="#78716c" fontSize="9" textAnchor="middle" fontFamily="monospace">GW{h.event}</text>
+        ))}
+        <polyline points={pts} fill="none" stroke="#6fcd9c" strokeWidth="2.5" />
+        {cur.map((h, i) => <circle key={i} cx={sx(i)} cy={sy(h.overall_rank)} r="2.5" fill="#6fcd9c" />)}
+        {chips.map(ch => {
+          const idx = cur.findIndex(h => h.event === ch.event);
+          if (idx < 0) return null;
+          return (
+            <g key={ch.name + ch.event}>
+              <circle cx={sx(idx)} cy={sy(cur[idx].overall_rank)} r="6" fill="none" stroke="#fbbf24" strokeWidth="1.5" />
+              <text x={sx(idx)} y={sy(cur[idx].overall_rank) - 10} fill="#fbbf24" fontSize="8" textAnchor="middle">{CHIP_NAMES[ch.name] || ch.name}</text>
+            </g>
+          );
+        })}
+      </svg>
+    );
+  }
+
+  // --- Склад останнього туру ---
+  const squadPicks = (picks?.picks || []).map(pk => ({ ...pk, player: playersMap[pk.element] })).filter(pk => pk.player);
+  const startingXI = squadPicks.filter(pk => pk.position <= 11);
+  const bench = squadPicks.filter(pk => pk.position > 11);
+
+  const SquadSlot = ({ pk }) => (
+    <button onClick={() => onPlayerClick(pk.player)} className={`relative w-full p-2.5 rounded-lg border text-left transition-all ${
+      pk.is_captain ? 'border-lime-500/50 bg-lime-950/20' : pk.is_vice_captain ? 'border-stone-500/40 bg-stone-800/40' : 'border-stone-800 bg-stone-900/40'
+    } hover:border-lime-500/40`}>
+      {pk.is_captain && <Icon name="crown" size={12} className="absolute top-1 right-1 text-lime-400" />}
+      {pk.is_vice_captain && <span className="absolute top-1 right-1 text-[9px] font-mono text-stone-400">VC</span>}
+      <div className="flex items-center gap-1">
+        <StatusDot player={pk.player} />
+        <div className="font-semibold text-sm truncate" style={{ fontFamily: 'DM Sans, sans-serif' }}>{pk.player.web_name}</div>
+      </div>
+      <div className="text-[10px] text-stone-500 mt-0.5">{teamsMap[pk.player.team]?.short_name} · {POSITIONS_UA[pk.player.element_type]} · £{(pk.player.now_cost/10).toFixed(1)}m</div>
+    </button>
+  );
+
+  return (
+    <div className="space-y-7">
+      {/* Header */}
+      <div className="relative overflow-hidden rounded-2xl border border-lime-500/20 bg-gradient-to-br from-stone-900 via-stone-900 to-lime-950/40 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-3xl tracking-tight" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>{entry.name}</div>
+            <div className="text-sm text-stone-400 mt-1">{entry.player_first_name} {entry.player_last_name} · ID {entry.id}</div>
+          </div>
+          <button onClick={() => { setEntryId(''); setData(null); }} className="text-xs text-stone-500 hover:text-stone-300 border border-stone-800 rounded-lg px-3 py-1.5 transition-colors">Змінити ID</button>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
+          <Stat label="Очки за сезон" value={(entry.summary_overall_points ?? 0).toLocaleString('uk-UA')} accent />
+          <Stat label="Загальний ранг" value={(entry.summary_overall_rank ?? 0).toLocaleString('uk-UA')} />
+          <Stat label="Вартість команди" value={`£${((entry.last_deadline_value ?? 0)/10).toFixed(1)}m`} />
+          <Stat label="У банку" value={`£${((entry.last_deadline_bank ?? 0)/10).toFixed(1)}m`} />
+        </div>
+      </div>
+
+      {/* Rank chart */}
+      {rankChart && (
+        <div>
+          <div className="text-sm uppercase tracking-wider text-stone-400 mb-3" style={{ fontFamily: 'DM Sans, sans-serif' }}>Ранг упродовж сезону <span className="text-stone-600 normal-case">(вище = краще, жовті кільця — зіграні чипи)</span></div>
+          <div className="rounded-xl border border-stone-800 bg-stone-900/30 p-4">{rankChart}</div>
+        </div>
+      )}
+
+      {/* Squad */}
+      {startingXI.length > 0 && (
+        <div>
+          <div className="text-sm uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+            <Icon name="star" size={14} /> Склад (GW{picksGW}){picks?.active_chip && <span className="text-amber-400 text-xs normal-case">· чип: {CHIP_NAMES[picks.active_chip] || picks.active_chip}</span>}
+          </div>
+          <div className="rounded-xl border border-stone-800 bg-gradient-to-b from-emerald-950/20 to-stone-950 p-4 space-y-3">
+            {[1, 2, 3, 4].map(pos => {
+              const inPos = startingXI.filter(pk => pk.player.element_type === pos);
+              if (inPos.length === 0) return null;
+              return (
+                <div key={pos} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${inPos.length}, minmax(0, 1fr))` }}>
+                  {inPos.map(pk => <SquadSlot key={pk.element} pk={pk} />)}
+                </div>
+              );
+            })}
+          </div>
+          {bench.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+              {bench.map(pk => <SquadSlot key={pk.element} pk={pk} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Past seasons */}
+      {past.length > 0 && (
+        <div>
+          <div className="text-sm uppercase tracking-wider text-stone-400 mb-3" style={{ fontFamily: 'DM Sans, sans-serif' }}>Минулі сезони</div>
+          <div className="overflow-x-auto rounded-xl border border-stone-800">
+            <table className="w-full text-sm">
+              <thead className="bg-stone-900/70">
+                <tr>
+                  <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wider text-stone-500 font-medium">Сезон</th>
+                  <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wider text-stone-500 font-medium">Очки</th>
+                  <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wider text-stone-500 font-medium">Ранг</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...past].reverse().map(s => (
+                  <tr key={s.season_name} className="border-t border-stone-900">
+                    <td className="px-3 py-2 font-medium" style={{ fontFamily: 'DM Sans, sans-serif' }}>{s.season_name}</td>
+                    <td className="px-3 py-2 text-right font-mono text-stone-200">{s.total_points.toLocaleString('uk-UA')}</td>
+                    <td className="px-3 py-2 text-right font-mono text-stone-400">{s.rank.toLocaleString('uk-UA')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// EXPERTS VIEW (стрічка з бекенду: RSS + YouTube, теги гравців)
+// ============================================================
+function timeAgo(ts) {
+  const diff = Date.now() - ts;
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return 'щойно';
+  if (h < 24) return `${h} год тому`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d} дн тому`;
+  return new Date(ts).toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' });
+}
+
+function ExpertsView({ players, onPlayerClick }) {
+  const playersMap = useMemo(() => Object.fromEntries(players.map(p => [p.id, p])), [players]);
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState(null);
+  const [sourceFilter, setSourceFilter] = useState('all');
+
+  useEffect(() => {
+    let cancelled = false;
+    loadFeed()
+      .then(d => { if (!cancelled) setItems(d); })
+      .catch(e => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (error) return <EmptyState message={`Не вдалося завантажити стрічку з сервера: ${error}`} />;
+  if (!items) return <div className="p-12 text-center text-stone-500 text-sm">Завантажую стрічку з сервера...</div>;
+
+  const sources = [...new Set(items.map(i => i.source))];
+  const filtered = sourceFilter === 'all' ? items : items.filter(i => i.source === sourceFilter);
+
+  return (
+    <div className="space-y-5">
+      <div className="text-sm text-stone-400" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+        Свіже від FPL-спільноти: статті й відео з курованих джерел, які твій сервер збирає автоматично. Сірі теги — гравці, згадані в матеріалі (клік відкриває картку).
+      </div>
+
+      {items.length === 0 && (
+        <div className="rounded-xl border border-blue-500/20 bg-blue-950/10 p-4 text-sm text-blue-200/80">
+          Стрічка поки порожня — сервер збирає матеріали кожні 3 години. Зазирни трохи пізніше.
+        </div>
+      )}
+
+      {sources.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setSourceFilter('all')} className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${sourceFilter === 'all' ? 'border-lime-500/50 text-lime-400 bg-lime-500/10' : 'border-stone-800 text-stone-400 hover:border-stone-700'}`}>Усі</button>
+          {sources.map(s => (
+            <button key={s} onClick={() => setSourceFilter(s)} className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${sourceFilter === s ? 'border-lime-500/50 text-lime-400 bg-lime-500/10' : 'border-stone-800 text-stone-400 hover:border-stone-700'}`}>{s}</button>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {filtered.map(item => (
+          <div key={item.link} className="p-3.5 rounded-lg border border-stone-800 bg-stone-900/40 hover:border-stone-700 transition-colors">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
+              <span className="text-[11px] uppercase tracking-wider text-lime-400/80">{item.source}</span>
+              <span className="text-[11px] text-stone-600 font-mono">{timeAgo(item.published)}</span>
+            </div>
+            <a href={item.link} target="_blank" rel="noopener noreferrer" className="block font-semibold text-stone-200 hover:text-lime-400 transition-colors leading-snug" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+              {item.title} <Icon name="link" size={11} className="inline text-stone-600" />
+            </a>
+            {item.summary && <div className="text-xs text-stone-500 mt-1 leading-snug">{item.summary}</div>}
+            {item.mentions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {item.mentions.map(id => playersMap[id]).filter(Boolean).slice(0, 8).map(p => (
+                  <button key={p.id} onClick={() => onPlayerClick(p)} className="px-2 py-0.5 rounded text-[11px] border border-stone-800 bg-stone-950/60 text-stone-400 hover:border-lime-500/40 hover:text-lime-400 transition-colors">
+                    {p.web_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

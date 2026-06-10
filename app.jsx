@@ -67,11 +67,13 @@ function App() {
 
   const tabs = [
     { id: 'dashboard', label: 'Дашборд', icon: 'trending' },
+    { id: 'myteam', label: 'Мій склад', icon: 'star' },
     { id: 'players', label: 'Гравці', icon: 'users' },
     { id: 'captain', label: 'Капітан', icon: 'crown' },
     { id: 'optimizer', label: 'Оптимізатор', icon: 'zap' },
     { id: 'consistency', label: 'Стабільність', icon: 'activity' },
     { id: 'trends', label: 'Тренди', icon: 'barchart' },
+    { id: 'experts', label: 'Експерти', icon: 'rss' },
     { id: 'fixtures', label: 'Календар', icon: 'calendar' },
   ];
 
@@ -146,11 +148,13 @@ function App() {
 
         <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8 pb-20">
           {view === 'dashboard' && <DashboardView players={players} teams={teams} fixtures={fixtures} currentGW={currentGW} weights={weights} seasonEnded={seasonEnded} onPlayerClick={setSelectedPlayer} />}
+          {view === 'myteam' && <MyTeamView players={players} teams={teams} events={bootstrap.events} onPlayerClick={setSelectedPlayer} />}
           {view === 'players' && <PlayersView players={players} teams={teams} fixtures={fixtures} currentGW={currentGW} weights={weights} onPlayerClick={setSelectedPlayer} />}
           {view === 'captain' && <CaptainView players={players} teams={teams} fixtures={fixtures} currentGW={currentGW} weights={weights} seasonEnded={seasonEnded} onPlayerClick={setSelectedPlayer} />}
           {view === 'optimizer' && <OptimizerView players={players} teams={teams} fixtures={fixtures} currentGW={currentGW} weights={weights} seasonEnded={seasonEnded} onPlayerClick={setSelectedPlayer} />}
           {view === 'consistency' && <ConsistencyView players={players} teams={teams} onPlayerClick={setSelectedPlayer} />}
           {view === 'trends' && <TrendsView players={players} teams={teams} onPlayerClick={setSelectedPlayer} />}
+          {view === 'experts' && <ExpertsView players={players} onPlayerClick={setSelectedPlayer} />}
           {view === 'fixtures' && <FixturesView teams={teams} fixtures={fixtures} currentGW={currentGW} />}
         </main>
 

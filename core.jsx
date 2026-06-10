@@ -86,6 +86,30 @@ async function loadPlayerSnapshots(playerId) {
   return fetchFromBackend(`/api/history/${playerId}`);
 }
 
+// Експертна стрічка (з бази на сервері)
+async function loadFeed() {
+  return fetchFromBackend('/api/feed');
+}
+async function loadPlayerFeed(playerId) {
+  return fetchFromBackend(`/api/feed/player/${playerId}`);
+}
+
+// Завантаження реальної команди користувача за FPL ID (entry id)
+async function loadMyTeam(entryId, fallbackGW) {
+  const [entry, history] = await Promise.all([
+    fetchWithProxy(`${FPL_API}/entry/${entryId}/`),
+    fetchWithProxy(`${FPL_API}/entry/${entryId}/history/`),
+  ]);
+  // Останній тур, у якому команда реально грала
+  const played = (history.current || []).filter(h => h.points !== null && h.points !== undefined);
+  const picksGW = played.length ? played[played.length - 1].event : fallbackGW;
+  let picks = null;
+  try {
+    picks = await fetchWithProxy(`${FPL_API}/entry/${entryId}/event/${picksGW}/picks/`);
+  } catch (e) { /* picks можуть бути недоступні — не критично */ }
+  return { entry, history, picks, picksGW };
+}
+
 // ============================================================
 // ANALYTICS
 // ============================================================
