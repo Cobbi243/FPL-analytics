@@ -710,16 +710,21 @@ function OptimizerView({ players, teams, fixtures, currentGW, weights, seasonEnd
 function PlayerModal({ player, team, fixtures, currentGW, teams, onClose }) {
   const [history, setHistory] = useState(null);
   const [loadingHist, setLoadingHist] = useState(false);
+  const [snapshots, setSnapshots] = useState(null);
 
   useEffect(() => {
     if (!player) return;
     let cancelled = false;
     setHistory(null);
     setLoadingHist(true);
+    setSnapshots(null);
     fetchWithProxy(`${FPL_API}/element-summary/${player.id}/`)
       .then(d => { if (!cancelled) setHistory((d.history || []).filter(h => h.minutes > 0)); })
       .catch(() => { if (!cancelled) setHistory([]); })
       .finally(() => { if (!cancelled) setLoadingHist(false); });
+    loadPlayerSnapshots(player.id)
+      .then(s => { if (!cancelled) setSnapshots(s); })
+      .catch(() => { if (!cancelled) setSnapshots([]); });
     return () => { cancelled = true; };
   }, [player]);
 
@@ -825,6 +830,51 @@ function PlayerModal({ player, team, fixtures, currentGW, teams, onClose }) {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+
+          {/* Price & ownership dynamics (from our backend DB) */}
+          <div>
+            <div className="flex items-baseline justify-between mb-2">
+              <div className="text-sm uppercase tracking-wider text-stone-500" style={{ fontFamily: 'DM Sans, sans-serif' }}>Динаміка ціни і власності</div>
+              {snapshots && snapshots.length >= 2 && (
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="flex items-center gap-1 text-lime-400"><span className="w-3 h-0.5 bg-lime-400 inline-block" />ціна</span>
+                  <span className="flex items-center gap-1 text-sky-400"><span className="w-3 h-0.5 bg-sky-400 inline-block" />власність</span>
+                </div>
+              )}
+            </div>
+            <div className="rounded-lg border border-stone-800 bg-stone-900/30 p-3">
+              {snapshots === null ? (
+                <div className="text-stone-500 text-sm py-4 text-center">Завантажую з сервера...</div>
+              ) : snapshots.length < 2 ? (
+                <div className="text-stone-500 text-sm py-4 text-center">Історія накопичується — сервер збирає знімки щогодини. Графік з'явиться, коли буде кілька точок зміни.</div>
+              ) : (() => {
+                const W = 600, H = 160, pad = 34;
+                const t0 = snapshots[0].ts, t1 = snapshots[snapshots.length - 1].ts || t0 + 1;
+                const sxT = ts => pad + ((ts - t0) / Math.max(1, t1 - t0)) * (W - pad * 2);
+                const prices = snapshots.map(s => s.price / 10);
+                const owns = snapshots.map(s => s.ownership);
+                const pMin = Math.min(...prices) - 0.1, pMax = Math.max(...prices) + 0.1;
+                const oMin = Math.min(...owns), oMax = Math.max(...owns) + 0.01;
+                const syP = v => H - pad - ((v - pMin) / Math.max(0.001, pMax - pMin)) * (H - pad * 2);
+                const syO = v => H - pad - ((v - oMin) / Math.max(0.001, oMax - oMin)) * (H - pad * 2);
+                const pricePts = snapshots.map(s => `${sxT(s.ts)},${syP(s.price / 10)}`).join(' ');
+                const ownPts = snapshots.map(s => `${sxT(s.ts)},${syO(s.ownership)}`).join(' ');
+                return (
+                  <>
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+                      <polyline points={ownPts} fill="none" stroke="#38bdf8" strokeWidth="2" opacity="0.8" />
+                      <polyline points={pricePts} fill="none" stroke="#6fcd9c" strokeWidth="2.5" />
+                      <text x={pad} y={H - 8} fill="#78716c" fontSize="9" fontFamily="monospace">{new Date(t0).toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' })}</text>
+                      <text x={W - pad} y={H - 8} fill="#78716c" fontSize="9" fontFamily="monospace" textAnchor="end">{new Date(t1).toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' })}</text>
+                    </svg>
+                    <div className="mt-1 text-xs text-stone-400 text-center font-mono">
+                      Ціна: £{prices[0].toFixed(1)}m → £{prices[prices.length-1].toFixed(1)}m · Власність: {owns[0].toFixed(1)}% → {owns[owns.length-1].toFixed(1)}%
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -1098,6 +1148,85 @@ function ConsistencyView({ players, teams, onPlayerClick }) {
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TRENDS VIEW (дані з бекенду: зміни цін і власності за ~24 год)
+// ============================================================
+function TrendsView({ players, teams, onPlayerClick }) {
+  const teamsMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
+  const playersMap = useMemo(() => Object.fromEntries(players.map(p => [p.id, p])), [players]);
+  const [trends, setTrends] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadTrends()
+      .then(t => { if (!cancelled) setTrends(t); })
+      .catch(e => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (error) {
+    return <EmptyState message={`Не вдалося завантажити тренди з сервера: ${error}`} />;
+  }
+  if (!trends) {
+    return <div className="p-12 text-center text-stone-500 text-sm">Завантажую тренди з сервера...</div>;
+  }
+
+  const hasData = ['ownership_risers', 'ownership_fallers', 'price_risers', 'price_fallers']
+    .some(k => (trends[k] || []).some(d => d.ownership_delta !== 0 || d.price_delta !== 0));
+
+  const TrendRow = ({ item, metric }) => {
+    const p = playersMap[item.player_id];
+    const team = p ? teamsMap[p.team] : null;
+    const delta = metric === 'price' ? item.price_delta / 10 : item.ownership_delta;
+    const positive = delta > 0;
+    const display = metric === 'price'
+      ? `${positive ? '+' : ''}£${delta.toFixed(1)}m`
+      : `${positive ? '+' : ''}${delta.toFixed(2)}%`;
+    const current = metric === 'price' ? `£${(item.price / 10).toFixed(1)}m` : `${item.ownership.toFixed(1)}%`;
+    return (
+      <button onClick={() => p && onPlayerClick(p)} className="w-full flex items-center gap-3 p-2.5 rounded-lg border border-stone-900 bg-stone-950/40 hover:bg-stone-900/60 hover:border-stone-700 transition-all text-left">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium truncate" style={{ fontFamily: 'DM Sans, sans-serif' }}>{item.web_name}</div>
+          <div className="text-[11px] text-stone-500">{team?.short_name || '—'} · зараз {current}</div>
+        </div>
+        <div className={`font-mono text-sm flex-shrink-0 ${positive ? 'text-lime-400' : 'text-red-400'}`}>{display}</div>
+      </button>
+    );
+  };
+
+  const TrendSection = ({ title, items, metric, emptyMsg }) => (
+    <div>
+      <div className="text-sm uppercase tracking-wider text-stone-400 mb-3" style={{ fontFamily: 'DM Sans, sans-serif' }}>{title}</div>
+      <div className="space-y-2">
+        {(items || []).filter(i => metric === 'price' ? i.price_delta !== 0 : i.ownership_delta !== 0).length === 0
+          ? <div className="text-xs text-stone-500 p-3 border border-stone-900 rounded-lg">{emptyMsg}</div>
+          : (items || []).filter(i => metric === 'price' ? i.price_delta !== 0 : i.ownership_delta !== 0).slice(0, 8)
+              .map(i => <TrendRow key={i.player_id} item={i} metric={metric} />)}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="text-sm text-stone-400" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+        Хто росте і падає за останні ~24 години. Дані збирає твій сервер щогодини — це історія, якої немає в офіційному FPL API.
+      </div>
+      {!hasData && (
+        <div className="rounded-xl border border-blue-500/20 bg-blue-950/10 p-4 text-sm text-blue-200/80" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+          Поки що змін не зафіксовано. Це нормально: серверу потрібно ~24 години роботи, щоб з'явилась база для порівняння, а в міжсезоння ціни й власність майже не рухаються. Зі стартом нового сезону тут стане жваво.
+        </div>
+      )}
+      <div className="grid md:grid-cols-2 gap-6">
+        <TrendSection title="Власність росте ↑" items={trends.ownership_risers} metric="ownership" emptyMsg="Немає зростань власності за період" />
+        <TrendSection title="Власність падає ↓" items={trends.ownership_fallers} metric="ownership" emptyMsg="Немає падінь власності за період" />
+        <TrendSection title="Ціна росте ↑" items={trends.price_risers} metric="price" emptyMsg="Немає підвищень цін за період" />
+        <TrendSection title="Ціна падає ↓" items={trends.price_fallers} metric="price" emptyMsg="Немає знижень цін за період" />
       </div>
     </div>
   );

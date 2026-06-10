@@ -21,6 +21,7 @@ const ICONS = {
   star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />,
   crown: <><path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z" /><path d="M5 21h14" /></>,
   activity: <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 2.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 12H2" />,
+  barchart: <><line x1="18" x2="18" y1="20" y2="4" /><line x1="12" x2="12" y1="20" y2="10" /><line x1="6" x2="6" y1="20" y2="16" /></>,
   link: <><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></>,
   help: <><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></>,
 };
@@ -58,6 +59,8 @@ const PROXIES = [
 ];
 
 const FPL_API = 'https://fantasy.premierleague.com/api';
+// Твій бекенд через HTTPS-міст (Cloudflare Worker → Oracle-сервер)
+const BACKEND_BASE = 'https://fpl-proxy.ybolshakov96.workers.dev';
 const CACHE_TTL = 30 * 60 * 1000;
 
 const EXPERT_SOURCES = [

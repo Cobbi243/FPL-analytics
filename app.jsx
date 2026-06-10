@@ -71,6 +71,7 @@ function App() {
     { id: 'captain', label: 'Капітан', icon: 'crown' },
     { id: 'optimizer', label: 'Оптимізатор', icon: 'zap' },
     { id: 'consistency', label: 'Стабільність', icon: 'activity' },
+    { id: 'trends', label: 'Тренди', icon: 'barchart' },
     { id: 'fixtures', label: 'Календар', icon: 'calendar' },
   ];
 
@@ -149,6 +150,7 @@ function App() {
           {view === 'captain' && <CaptainView players={players} teams={teams} fixtures={fixtures} currentGW={currentGW} weights={weights} seasonEnded={seasonEnded} onPlayerClick={setSelectedPlayer} />}
           {view === 'optimizer' && <OptimizerView players={players} teams={teams} fixtures={fixtures} currentGW={currentGW} weights={weights} seasonEnded={seasonEnded} onPlayerClick={setSelectedPlayer} />}
           {view === 'consistency' && <ConsistencyView players={players} teams={teams} onPlayerClick={setSelectedPlayer} />}
+          {view === 'trends' && <TrendsView players={players} teams={teams} onPlayerClick={setSelectedPlayer} />}
           {view === 'fixtures' && <FixturesView teams={teams} fixtures={fixtures} currentGW={currentGW} />}
         </main>
 

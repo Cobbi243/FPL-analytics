@@ -36,6 +36,14 @@ async function fetchWithProxy(url) {
   throw lastErr || new Error('Усі проксі не відповідають');
 }
 
+// Швидкий шлях: дані з нашого бекенду (спільний серверний кеш).
+// Якщо бекенд недоступний — фолбек на проксі-ланцюжок.
+async function fetchFromBackend(apiPath) {
+  const res = await fetch(`${BACKEND_BASE}${apiPath}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Backend HTTP ${res.status}`);
+  return res.json();
+}
+
 async function loadFPLData(forceRefresh = false) {
   if (!forceRefresh) {
     try {
@@ -49,14 +57,33 @@ async function loadFPLData(forceRefresh = false) {
     } catch (e) {}
   }
 
-  const [bootstrap, fixtures] = await Promise.all([
-    fetchWithProxy(`${FPL_API}/bootstrap-static/`),
-    fetchWithProxy(`${FPL_API}/fixtures/`),
-  ]);
+  let bootstrap, fixtures;
+  try {
+    [bootstrap, fixtures] = await Promise.all([
+      fetchFromBackend('/api/bootstrap'),
+      fetchFromBackend('/api/fixtures'),
+    ]);
+  } catch (e) {
+    // Бекенд лежить — старий шлях через проксі
+    [bootstrap, fixtures] = await Promise.all([
+      fetchWithProxy(`${FPL_API}/bootstrap-static/`),
+      fetchWithProxy(`${FPL_API}/fixtures/`),
+    ]);
+  }
 
   const data = { bootstrap, fixtures };
   try { await storage.set('fpl-cache', JSON.stringify({ ts: Date.now(), data })); } catch (e) {}
   return { ...data, fromCache: false, cachedAt: Date.now() };
+}
+
+// Тренди за ~24 год (з бази на сервері)
+async function loadTrends() {
+  return fetchFromBackend('/api/trends');
+}
+
+// Історія знімків гравця: ціна/власність/форма у часі (з бази на сервері)
+async function loadPlayerSnapshots(playerId) {
+  return fetchFromBackend(`/api/history/${playerId}`);
 }
 
 // ============================================================
