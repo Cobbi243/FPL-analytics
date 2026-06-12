@@ -1738,7 +1738,7 @@ function AccuracyView() {
           <>
             <div className="grid md:grid-cols-2 gap-3">
               <MetricCard title="Стара модель (форма + FDR)" mae={backtest.v1.mae} corr={backtest.v1.corr} n={backtest.v1.n} />
-              <MetricCard title="Нова модель v2 (xG/xA + Пуассон)" mae={backtest.v2.mae} corr={backtest.v2.corr} n={backtest.v2.n} accent />
+              <MetricCard title="Нова модель v2.1 (xG/xA + Пуассон + ротація)" mae={backtest.v2.mae} corr={backtest.v2.corr} n={backtest.v2.n} accent />
             </div>
             {improvement !== null && (
               <div className="mt-3 p-3 rounded-lg border border-stone-800 bg-stone-900/30 text-sm text-stone-300" style={{ fontFamily: 'DM Sans, sans-serif' }}>

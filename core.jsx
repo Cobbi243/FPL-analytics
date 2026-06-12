@@ -160,11 +160,12 @@ function availabilityFactor(player) {
 }
 
 // ============================================================
-// МОДЕЛЬ ПРОГНОЗУ v2
-// Атака: xG/90 та xA/90 гравця, скориговані на силу захисту суперника.
-// Сухарі: ймовірність за Пуассоном з особистого xGC/90, скоригованого
-// на силу атаки суперника. Для гравців з малою вибіркою хвилин —
-// плавне змішування зі старою формулою (форма + очки/матч).
+// МОДЕЛЬ ПРОГНОЗУ v2.1
+// Атака: xG/90 та xA/90, скориговані на силу захисту суперника.
+// Сухарі: Пуассон з особистого xGC/90 × сила атаки суперника.
+// Ротація: очікувані хвилини на МАТЧ КОМАНДИ + ймовірність старту.
+// "Інші очки/90": залишок (бонуси, сейви, DefCon, картки) з реальної
+// статистики гравця. Малі вибірки -> змішування зі старою формулою.
 // ============================================================
 const GOAL_VALUE = { 1: 6, 2: 6, 3: 5, 4: 4 };
 const CS_VALUE = { 1: 4, 2: 4, 3: 1, 4: 0 };
@@ -178,13 +179,19 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
   }
 
   const mins = player.minutes || 0;
-  const starts = player.starts || 0;
   const form = parseFloat(player.form) || 0;
   const ppg = parseFloat(player.points_per_game) || 0;
   const avail = availabilityFactor(player);
 
-  // Очікувані хвилини на матч: з історії стартів, обмежено 90
-  const minsPerGame = starts > 0 ? Math.min(90, mins / starts) : (mins > 0 ? Math.min(60, mins / 5) : 0);
+  // Скільки матчів зіграла КОМАНДА (для оцінки ротації гравця)
+  const rounds = Math.max(1, fixtures.filter(f => f.finished && (f.team_h === player.team || f.team_a === player.team)).length);
+  const starts = Math.min(player.starts || 0, rounds);
+  // Виходи з лавки: оцінка з "зайвих" хвилин (старт ≈ 84 хв, камео ≈ 25 хв)
+  const cameos = Math.max(0, Math.min(rounds - starts, Math.round((mins - 84 * starts) / 25)));
+  const p60 = Math.min(1, starts / rounds);
+  const pCameo = Math.min(1 - p60, cameos / rounds);
+  const expMins = mins / rounds; // очікувані хвилини на матч команди
+
   const minutesFactor = w.minutes > 0
     ? (mins > 1000 ? 1.0 : mins > 500 ? 0.85 : mins > 200 ? 0.7 : 0.5)
     : 1.0;
@@ -195,7 +202,18 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
   const xA90 = per90(player.expected_assists);
   const xGC90 = per90(player.expected_goals_conceded);
 
-  // Вага нової моделі росте з вибіркою: 0 хвилин -> стара формула, 450+ -> повністю нова
+  // "Інші очки" (бонуси, сейви, DefCon, мінуси за картки/пропущені) —
+  // залишок реальних очок після голів/асистів/сухарів/виходів
+  const appearanceCum = 2 * starts + cameos;
+  const explained = (player.goals_scored || 0) * GOAL_VALUE[player.element_type]
+    + (player.assists || 0) * 3
+    + (player.clean_sheets || 0) * CS_VALUE[player.element_type]
+    + appearanceCum;
+  const other90 = mins > 0
+    ? Math.max(-1, Math.min(3, ((player.total_points || 0) - explained) / (mins / 90)))
+    : 0;
+
+  // Вага нової моделі росте з вибіркою: 0 хвилин -> стара формула, 450+ -> нова
   const blendNew = Math.min(1, mins / 450);
   // Сила коригування на суперника керується слайдером FDR (0.5 = стандарт)
   const adjScale = Math.min(2, w.fdr / 0.5);
@@ -203,27 +221,22 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
   let total = 0;
   const detailedFixtures = nextFixtures.map(f => {
     const opp = teamsMap[f.opponent];
-    // Сили суперника з bootstrap (окремо дім/виїзд суперника — дзеркально до нашого)
     const oppDef = opp ? (f.isHome ? opp.strength_defence_away : opp.strength_defence_home) || AVG_STRENGTH : AVG_STRENGTH;
     const oppAtt = opp ? (f.isHome ? opp.strength_attack_away : opp.strength_attack_home) || AVG_STRENGTH : AVG_STRENGTH;
-    const attackAdjRaw = AVG_STRENGTH / oppDef;   // слабший захист суперника -> більше наших голів
-    const concedeAdjRaw = oppAtt / AVG_STRENGTH;  // сильніша атака суперника -> менше шансів на сухар
-    const attackAdj = 1 + (attackAdjRaw - 1) * adjScale;
-    const concedeAdj = 1 + (concedeAdjRaw - 1) * adjScale;
+    const attackAdj = 1 + (AVG_STRENGTH / oppDef - 1) * adjScale;
+    const concedeAdj = 1 + (oppAtt / AVG_STRENGTH - 1) * adjScale;
 
-    const playShare = minsPerGame / 90;
-    const appearancePts = minsPerGame >= 60 ? 2 : minsPerGame > 0 ? 1 : 0;
-    const attackPts = (xG90 * GOAL_VALUE[player.element_type] + xA90 * 3) * playShare * attackAdj;
-    const csProb = minsPerGame >= 60 ? Math.exp(-(xGC90 * concedeAdj)) : 0;
-    const csPts = csProb * CS_VALUE[player.element_type];
+    const appearancePts = 2 * p60 + 1 * pCameo;
+    const attackPts = (xG90 * GOAL_VALUE[player.element_type] + xA90 * 3) * (expMins / 90) * attackAdj;
+    const csPts = p60 * Math.exp(-(xGC90 * concedeAdj)) * CS_VALUE[player.element_type];
+    const otherPts = other90 * (expMins / 90);
     const homeBonus = f.isHome ? 0.2 : 0;
-    const newScore = (appearancePts + attackPts + csPts + homeBonus) * avail;
+    const newScore = (appearancePts + attackPts + csPts + otherPts + homeBonus) * avail;
 
-    // Стара формула (форма/PPG + FDR) — для змішування і як база для новачків сезону
+    // Стара формула (форма/PPG + FDR) — для змішування і як база для новачків
     const oldBase = (form * 0.7 + ppg * 0.3) * w.form;
     const oldScore = Math.max(0, (oldBase + (3 - f.difficulty) * w.fdr + (f.isHome ? 0.3 : 0)) * minutesFactor * avail);
 
-    // Слайдер форми підмішує свіжу форму і в нову модель (хто гарячий зараз — трохи вище)
     const formBoost = 1 + Math.max(-0.15, Math.min(0.15, (form - ppg) * 0.03 * w.form));
     const fixtureScore = Math.max(0, blendNew * newScore * formBoost + (1 - blendNew) * oldScore);
 
