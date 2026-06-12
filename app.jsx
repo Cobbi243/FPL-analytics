@@ -74,6 +74,7 @@ function App() {
     { id: 'consistency', label: 'Стабільність', icon: 'activity' },
     { id: 'trends', label: 'Тренди', icon: 'barchart' },
     { id: 'experts', label: 'Експерти', icon: 'rss' },
+    { id: 'accuracy', label: 'Точність', icon: 'target' },
     { id: 'fixtures', label: 'Календар', icon: 'calendar' },
   ];
 
@@ -155,6 +156,7 @@ function App() {
           {view === 'consistency' && <ConsistencyView players={players} teams={teams} onPlayerClick={setSelectedPlayer} />}
           {view === 'trends' && <TrendsView players={players} teams={teams} onPlayerClick={setSelectedPlayer} />}
           {view === 'experts' && <ExpertsView players={players} onPlayerClick={setSelectedPlayer} />}
+          {view === 'accuracy' && <AccuracyView />}
           {view === 'fixtures' && <FixturesView teams={teams} fixtures={fixtures} currentGW={currentGW} />}
         </main>
 

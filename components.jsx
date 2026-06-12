@@ -1679,6 +1679,118 @@ function TrendsView({ players, teams, onPlayerClick }) {
 }
 
 // ============================================================
+// ACCURACY VIEW (бектест моделі + жива точність прогнозів)
+// ============================================================
+function AccuracyView() {
+  const [backtest, setBacktest] = useState(null);
+  const [accuracy, setAccuracy] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([loadBacktest(), loadAccuracy()])
+      .then(([bt, acc]) => { if (!cancelled) { setBacktest(bt); setAccuracy(acc); } })
+      .catch(e => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (error) return <EmptyState message={`Не вдалося завантажити з сервера: ${error}`} />;
+  if (!backtest || !accuracy) return <div className="p-12 text-center text-stone-500 text-sm">Завантажую дані з сервера...</div>;
+
+  const btReady = backtest && backtest.v1 && backtest.v2;
+  const improvement = btReady && backtest.v1.mae && backtest.v2.mae
+    ? ((backtest.v1.mae - backtest.v2.mae) / backtest.v1.mae * 100)
+    : null;
+
+  const MetricCard = ({ title, mae, corr, n, accent }) => (
+    <div className={`p-4 rounded-xl border ${accent ? 'border-lime-500/40 bg-lime-950/15' : 'border-stone-800 bg-stone-900/40'}`}>
+      <div className="text-xs uppercase tracking-wider text-stone-500 mb-2" style={{ fontFamily: 'DM Sans, sans-serif' }}>{title}</div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <div className={`font-mono text-2xl ${accent ? 'text-lime-400' : 'text-stone-200'}`}>{mae ?? '—'}</div>
+          <div className="text-[10px] text-stone-600 uppercase tracking-wider">MAE (сер. похибка)</div>
+        </div>
+        <div>
+          <div className={`font-mono text-2xl ${accent ? 'text-lime-400' : 'text-stone-200'}`}>{corr ?? '—'}</div>
+          <div className="text-[10px] text-stone-600 uppercase tracking-wider">Кореляція</div>
+        </div>
+      </div>
+      <div className="text-[10px] text-stone-600 mt-2 font-mono">{n?.toLocaleString('uk-UA')} прогнозів</div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-8">
+      <div className="text-sm text-stone-400" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+        Наскільки можна вірити нашим прогнозам — у цифрах. <strong className="text-stone-300">MAE</strong> — на скільки очок прогноз у середньому промахується (менше = краще). <strong className="text-stone-300">Кореляція</strong> — наскільки добре прогноз вгадує, хто набере більше, а хто менше (1.0 = ідеально, 0 = випадковість).
+      </div>
+
+      {/* Backtest section */}
+      <section>
+        <div className="text-sm uppercase tracking-wider text-stone-400 mb-3" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+          Бектест: модель перевірена на сезоні {backtest.season || '2025/26'}
+        </div>
+        {!btReady ? (
+          <div className="rounded-xl border border-blue-500/20 bg-blue-950/10 p-4 text-sm text-blue-200/80">
+            Сервер ще рахує бектест (~2-3 хв після оновлення бекенду). Онови сторінку трохи згодом.
+          </div>
+        ) : (
+          <>
+            <div className="grid md:grid-cols-2 gap-3">
+              <MetricCard title="Стара модель (форма + FDR)" mae={backtest.v1.mae} corr={backtest.v1.corr} n={backtest.v1.n} />
+              <MetricCard title="Нова модель v2 (xG/xA + Пуассон)" mae={backtest.v2.mae} corr={backtest.v2.corr} n={backtest.v2.n} accent />
+            </div>
+            {improvement !== null && (
+              <div className="mt-3 p-3 rounded-lg border border-stone-800 bg-stone-900/30 text-sm text-stone-300" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                {improvement > 0
+                  ? <>Нова модель помиляється в середньому на <span className="font-mono text-lime-400">{improvement.toFixed(1)}%</span> менше за стару.</>
+                  : <>На цьому сезоні нова модель не показала переваги за MAE ({improvement.toFixed(1)}%) — дивись також кореляцію.</>}
+                {' '}Методика: для кожного з {backtest.sample_players} найактивніших гравців прогнозували кожен тур (GW {backtest.gws}) лише за даними попередніх турів — як у реальному житті, без підглядання в майбутнє.
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* Live accuracy section */}
+      <section>
+        <div className="text-sm uppercase tracking-wider text-stone-400 mb-3" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+          Жива точність по турах — сезон 2026/27
+        </div>
+        {accuracy.length === 0 ? (
+          <div className="rounded-xl border border-blue-500/20 bg-blue-950/10 p-4 text-sm text-blue-200/80" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+            Наповниться з початком сезону: за добу до кожного дедлайну сервер фіксує прогнози всіх гравців, а після завершення туру чесно звіряє їх із фактичними очками. Жодних заднім числом — тільки прогнози, зроблені наперед.
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-stone-800">
+            <table className="w-full text-sm">
+              <thead className="bg-stone-900/70">
+                <tr>
+                  <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wider text-stone-500 font-medium">Тур</th>
+                  <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wider text-stone-500 font-medium">MAE</th>
+                  <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wider text-stone-500 font-medium">Кореляція</th>
+                  <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wider text-stone-500 font-medium">Прогнозів</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accuracy.map(r => (
+                  <tr key={r.event} className="border-t border-stone-900">
+                    <td className="px-3 py-2 font-mono text-stone-200">GW{r.event}</td>
+                    <td className="px-3 py-2 text-right font-mono text-lime-400">{r.mae}</td>
+                    <td className="px-3 py-2 text-right font-mono text-stone-300">{r.corr ?? '—'}</td>
+                    <td className="px-3 py-2 text-right font-mono text-stone-500">{r.n}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ============================================================
 // GLOSSARY DRAWER
 // ============================================================
 const GLOSSARY = [
