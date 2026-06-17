@@ -242,6 +242,9 @@ const ICONS = {
     cy: "19",
     r: "1"
   })),
+  shield: /*#__PURE__*/React.createElement("path", {
+    d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+  }),
   link: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
     d: "M15 3h6v6"
   }), /*#__PURE__*/React.createElement("path", {
@@ -709,6 +712,86 @@ function differentialBoost(player) {
 // ============================================================
 // OPTIMIZER
 // ============================================================
+// ============================================================
+// ПРОГНОЗ ПО КОМАНДАХ на найближчий тур
+// Очікувані голи (xGF) і ймовірність сухаря з рейтингів сили команд.
+// Базова лінія ~1.45 гола/матч (середнє АПЛ), масштабується силою
+// атаки своєї команди проти захисту суперника (і навпаки для сухаря).
+// Сухар за Пуассоном: P(0 пропущених) = exp(-очікувані пропущені).
+// ============================================================
+const LEAGUE_AVG_GOALS = 1.45; // середні голи команди за матч в АПЛ
+const HOME_GOAL_MULT = 1.1; // невелика домашня перевага
+
+function teamForecast(teams, fixtures, fromGW) {
+  const teamsById = Object.fromEntries(teams.map(t => [t.id, t]));
+  // Знаходимо найближчий тур із матчами
+  const upcoming = fixtures.filter(f => f.event != null && !f.finished && f.event >= (fromGW || 1));
+  if (upcoming.length === 0) return {
+    gw: null,
+    rows: []
+  };
+  const gw = Math.min(...upcoming.map(f => f.event));
+  const gwFixtures = fixtures.filter(f => f.event === gw);
+  const rows = [];
+  for (const f of gwFixtures) {
+    const home = teamsById[f.team_h];
+    const away = teamsById[f.team_a];
+    if (!home || !away) continue;
+    const calc = (att, def, opp, isHome) => {
+      // сила атаки нашої команди проти сили захисту суперника
+      const attStr = isHome ? att.strength_attack_home : att.strength_attack_away;
+      const defStr = isHome ? opp.strength_defence_away : opp.strength_defence_home;
+      const xGF = LEAGUE_AVG_GOALS * (attStr / AVG_STRENGTH) * (AVG_STRENGTH / defStr) * (isHome ? HOME_GOAL_MULT : 1 / HOME_GOAL_MULT);
+      return Math.max(0.15, xGF);
+    };
+    const homeXGF = calc(home, null, away, true);
+    const awayXGF = calc(away, null, home, false);
+    // ймовірність сухаря = P(суперник не забʼє) = exp(-його xGF)
+    const homeCS = Math.exp(-awayXGF);
+    const awayCS = Math.exp(-homeXGF);
+    // ймовірність перемоги/нічиєї за Пуассоном (груба оцінка через різницю xGF)
+
+    rows.push({
+      fixtureId: f.id,
+      gw,
+      home: {
+        team: home,
+        opp: away,
+        isHome: true,
+        xGF: homeXGF,
+        cs: homeCS,
+        fdr: f.team_h_difficulty
+      },
+      away: {
+        team: away,
+        opp: home,
+        isHome: false,
+        xGF: awayXGF,
+        cs: awayCS,
+        fdr: f.team_a_difficulty
+      }
+    });
+  }
+  // Плоский список команд (зручніше для таблиці), відсортований за xGF
+  const flat = [];
+  for (const r of rows) {
+    flat.push({
+      ...r.home,
+      fixtureId: r.fixtureId,
+      gw
+    });
+    flat.push({
+      ...r.away,
+      fixtureId: r.fixtureId,
+      gw
+    });
+  }
+  return {
+    gw,
+    rows,
+    flat
+  };
+}
 function optimizeSquad(players, teamsMap, fixtures, fromGW, options = {}) {
   const {
     budget = 1000,
@@ -3364,6 +3447,135 @@ function MyTeamView({
 }
 
 // ============================================================
+// TEAMS VIEW (прогноз по командах на найближчий тур)
+// ============================================================
+function TeamsView({
+  teams,
+  fixtures,
+  currentGW
+}) {
+  const forecast = useMemo(() => teamForecast(teams, fixtures, currentGW), [teams, fixtures, currentGW]);
+  const [sortBy, setSortBy] = useState('xGF'); // 'xGF' | 'cs'
+
+  if (!forecast.gw || forecast.flat.length === 0) {
+    return /*#__PURE__*/React.createElement(EmptyState, {
+      message: "\u041D\u0435\u043C\u0430\u0454 \u043C\u0430\u0439\u0431\u0443\u0442\u043D\u0456\u0445 \u043C\u0430\u0442\u0447\u0456\u0432 \u0434\u043B\u044F \u043F\u0440\u043E\u0433\u043D\u043E\u0437\u0443. \u0417'\u044F\u0432\u0438\u0442\u044C\u0441\u044F, \u043A\u043E\u043B\u0438 \u0432\u0438\u0439\u0434\u0435 \u0440\u043E\u0437\u043A\u043B\u0430\u0434 \u043D\u043E\u0432\u043E\u0433\u043E \u0442\u0443\u0440\u0443."
+    });
+  }
+  const sorted = [...forecast.flat].sort((a, b) => sortBy === 'xGF' ? b.xGF - a.xGF : b.cs - a.cs);
+  const maxXGF = Math.max(...forecast.flat.map(t => t.xGF));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-stone-400",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "\u041F\u0440\u043E\u0433\u043D\u043E\u0437 \u043D\u0430 ", /*#__PURE__*/React.createElement("strong", {
+    className: "text-stone-200"
+  }, "GW", forecast.gw), " \u043F\u043E \u043A\u043E\u043C\u0430\u043D\u0434\u0430\u0445. ", /*#__PURE__*/React.createElement("strong", {
+    className: "text-stone-300"
+  }, "xGF"), " \u2014 \u043E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0430 \u043A\u0456\u043B\u044C\u043A\u0456\u0441\u0442\u044C \u0437\u0430\u0431\u0438\u0442\u0438\u0445 \u0433\u043E\u043B\u0456\u0432. ", /*#__PURE__*/React.createElement("strong", {
+    className: "text-stone-300"
+  }, "\u0421\u0443\u0445\u0430\u0440"), " \u2014 \u0439\u043C\u043E\u0432\u0456\u0440\u043D\u0456\u0441\u0442\u044C \u043D\u0435 \u043F\u0440\u043E\u043F\u0443\u0441\u0442\u0438\u0442\u0438 (\u0432\u0430\u0436\u043B\u0438\u0432\u043E \u0434\u043B\u044F \u0437\u0430\u0445\u0438\u0441\u043D\u0438\u043A\u0456\u0432 \u0456 \u0432\u043E\u0440\u043E\u0442\u0430\u0440\u0456\u0432 \u0446\u0438\u0445 \u043A\u043E\u043C\u0430\u043D\u0434). \u0420\u0430\u0445\u0443\u0454\u0442\u044C\u0441\u044F \u0437 \u0440\u0435\u0439\u0442\u0438\u043D\u0433\u0456\u0432 \u0441\u0438\u043B\u0438 \u0430\u0442\u0430\u043A\u0438/\u0437\u0430\u0445\u0438\u0441\u0442\u0443 \u043F\u0440\u043E\u0442\u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u0433\u043E \u0441\u0443\u043F\u0435\u0440\u043D\u0438\u043A\u0430."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-400 mb-3",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "\u041C\u0430\u0442\u0447\u0456 \u0442\u0443\u0440\u0443"), /*#__PURE__*/React.createElement("div", {
+    className: "grid md:grid-cols-2 gap-3"
+  }, forecast.rows.map(r => /*#__PURE__*/React.createElement("div", {
+    key: r.fixtureId,
+    className: "rounded-xl border border-stone-800 bg-stone-900/40 p-4"
+  }, [r.home, r.away].map((side, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: `flex items-center justify-between gap-3 ${i === 0 ? 'mb-2 pb-2 border-b border-stone-800' : ''}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 min-w-0"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] font-mono text-stone-600 w-7"
+  }, side.isHome ? 'дім' : 'виїзд'), /*#__PURE__*/React.createElement("span", {
+    className: "font-semibold truncate",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, side.team.name)), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-4 flex-shrink-0 text-sm"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-lime-400",
+    title: "\u041E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u0433\u043E\u043B\u0438"
+  }, side.xGF.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-sky-400 w-12 text-right",
+    title: "\u0419\u043C\u043E\u0432\u0456\u0440\u043D\u0456\u0441\u0442\u044C \u0441\u0443\u0445\u0430\u0440\u044F"
+  }, Math.round(side.cs * 100), "%")))))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-400",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "\u0420\u0435\u0439\u0442\u0438\u043D\u0433 \u043A\u043E\u043C\u0430\u043D\u0434 \u043D\u0430 \u0442\u0443\u0440"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setSortBy('xGF'),
+    className: `px-3 py-1.5 rounded-lg text-xs border transition-colors ${sortBy === 'xGF' ? 'border-lime-500/50 text-lime-400 bg-lime-500/10' : 'border-stone-800 text-stone-400 hover:border-stone-700'}`
+  }, "\u0417\u0430 \u0433\u043E\u043B\u0430\u043C\u0438"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setSortBy('cs'),
+    className: `px-3 py-1.5 rounded-lg text-xs border transition-colors ${sortBy === 'cs' ? 'border-lime-500/50 text-lime-400 bg-lime-500/10' : 'border-stone-800 text-stone-400 hover:border-stone-700'}`
+  }, "\u0417\u0430 \u0441\u0443\u0445\u0430\u0440\u044F\u043C\u0438"))), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-1.5"
+  }, sorted.map((t, i) => /*#__PURE__*/React.createElement("div", {
+    key: t.team.id,
+    className: "flex items-center gap-3 p-2.5 rounded-lg border border-stone-900 bg-stone-950/40"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-xs text-stone-600 w-5"
+  }, i + 1), /*#__PURE__*/React.createElement("div", {
+    className: "min-w-0 flex-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-medium text-sm truncate",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, t.team.name), /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-stone-500"
+  }, t.isHome ? 'вдома проти' : 'у гостях проти', " ", t.opp.short_name, " \xB7 ", /*#__PURE__*/React.createElement(FDRInline, {
+    fdr: t.fdr
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "hidden sm:block w-24"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "h-1.5 rounded-full bg-stone-800 overflow-hidden"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "h-full bg-lime-500/70 rounded-full",
+    style: {
+      width: `${Math.min(100, t.xGF / maxXGF * 100)}%`
+    }
+  }))), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-sm text-lime-400 w-12 text-right",
+    title: "\u041E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u0433\u043E\u043B\u0438"
+  }, t.xGF.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-sm text-sky-400 w-12 text-right",
+    title: "\u0419\u043C\u043E\u0432\u0456\u0440\u043D\u0456\u0441\u0442\u044C \u0441\u0443\u0445\u0430\u0440\u044F"
+  }, Math.round(t.cs * 100), "%")))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 text-[11px] text-stone-600 flex gap-4 justify-end"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-lime-400"
+  }, "xGF \u2014 \u043E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u0433\u043E\u043B\u0438"), /*#__PURE__*/React.createElement("span", {
+    className: "text-sky-400"
+  }, "% \u2014 \u0439\u043C\u043E\u0432\u0456\u0440\u043D\u0456\u0441\u0442\u044C \u0441\u0443\u0445\u0430\u0440\u044F"))));
+}
+function FDRInline({
+  fdr
+}) {
+  const c = FDR_COLORS[fdr] || FDR_COLORS[3];
+  return /*#__PURE__*/React.createElement("span", {
+    className: "font-medium",
+    style: {
+      color: c.bg
+    }
+  }, "FDR ", fdr);
+}
+
+// ============================================================
 // EXPERTS VIEW (стрічка з бекенду: RSS + YouTube, теги гравців)
 // ============================================================
 function timeAgo(ts) {
@@ -3967,6 +4179,10 @@ function App() {
     id: 'fixtures',
     label: 'Календар',
     icon: 'calendar'
+  }, {
+    id: 'teams',
+    label: 'Команди',
+    icon: 'shield'
   }];
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen text-stone-100",
@@ -4107,6 +4323,10 @@ function App() {
     players: players,
     onPlayerClick: setSelectedPlayer
   }), view === 'accuracy' && /*#__PURE__*/React.createElement(AccuracyView, null), view === 'fixtures' && /*#__PURE__*/React.createElement(FixturesView, {
+    teams: teams,
+    fixtures: fixtures,
+    currentGW: currentGW
+  }), view === 'teams' && /*#__PURE__*/React.createElement(TeamsView, {
     teams: teams,
     fixtures: fixtures,
     currentGW: currentGW
