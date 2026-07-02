@@ -2916,6 +2916,9 @@ function MyTeamView({
   players,
   teams,
   events,
+  fixtures,
+  currentGW,
+  weights,
   onPlayerClick
 }) {
   const teamsMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
@@ -3274,6 +3277,97 @@ function MyTeamView({
     }, /*#__PURE__*/React.createElement("title", null, `GW${d.gw}\nТвої очки: ${d.mine}${d.hits ? ` (мінуси за трансфери: -${d.hits})` : ''}\nСереднє по грі: ${d.avg ?? '—'}\nТоп-10k (оцінка): ${d.t10 !== null ? d.t10.toFixed(1) : '—'}\n${d.avg !== null ? d.mine > d.avg ? `Вище середнього на ${d.mine - d.avg}` : d.mine < d.avg ? `Нижче середнього на ${d.avg - d.mine}` : 'Рівно середнє' : ''}`))));
   }
 
+  // --- ПЕРСОНАЛЬНІ ПОРАДИ (модель v2.1 по твоїх 15 гравцях) ---
+  const ADVICE_HORIZON = 5;
+  let advice = null;
+  {
+    const squad15 = (picks?.picks || []).map(pk => playersMap[pk.element]).filter(Boolean);
+    if (squad15.length >= 11 && fixtures && fixtures.length) {
+      const squadIds = new Set(squad15.map(p => p.id));
+      const rated = squad15.map(p => {
+        const predH = predictPlayerPoints(p, teamsMap, fixtures, currentGW, ADVICE_HORIZON, weights);
+        const pred1 = predictPlayerPoints(p, teamsMap, fixtures, currentGW, 1, weights);
+        const avgDiff = predH.fixtures.length ? predH.fixtures.reduce((s, f) => s + f.difficulty, 0) / predH.fixtures.length : 3;
+        return {
+          p,
+          predH,
+          pred1,
+          avgDiff
+        };
+      });
+      const hasFuture = rated.some(r => r.predH.fixtures.length > 0);
+      if (hasFuture) {
+        // 1) Капітан і віце з твоїх (на найближчий тур)
+        const byNext = [...rated].sort((a, b) => b.pred1.total - a.pred1.total);
+        const captain = byNext[0],
+          vice = byNext[1];
+
+        // 2) Оптимальний старт 11 з валідною формацією
+        const byPos = {
+          1: [],
+          2: [],
+          3: [],
+          4: []
+        };
+        for (const r of byNext) byPos[r.p.element_type].push(r);
+        let bestXI = null;
+        for (const d of [3, 4, 5]) for (const m of [2, 3, 4, 5]) for (const f of [1, 2, 3]) {
+          if (1 + d + m + f !== 11) continue;
+          if (byPos[1].length < 1 || byPos[2].length < d || byPos[3].length < m || byPos[4].length < f) continue;
+          const xi = [...byPos[1].slice(0, 1), ...byPos[2].slice(0, d), ...byPos[3].slice(0, m), ...byPos[4].slice(0, f)];
+          const total = xi.reduce((s, r) => s + r.pred1.total, 0);
+          if (!bestXI || total > bestXI.total) bestXI = {
+            xi,
+            total,
+            formation: `${d}-${m}-${f}`
+          };
+        }
+        const xiIds = new Set((bestXI?.xi || []).map(r => r.p.id));
+        const benchAdv = rated.filter(r => !xiIds.has(r.p.id)).sort((a, b) => b.pred1.total - a.pred1.total);
+
+        // 3) Кандидати на продаж: травмовані + найслабші за прогнозом на горизонт
+        const sellReason = r => {
+          if (r.p.status === 'i' || r.p.status === 's' || r.p.status === 'u') return 'травма/недоступний';
+          if (r.p.status === 'd') return `під сумнівом (${r.p.chance_of_playing_next_round ?? '?'}%)`;
+          if (r.avgDiff >= 3.6) return 'важкий календар';
+          return 'низький очікуваний внесок';
+        };
+        const sellPool = [...rated].sort((a, b) => {
+          const badA = a.p.status !== 'a' ? -100 : 0,
+            badB = b.p.status !== 'a' ? -100 : 0;
+          return a.predH.total + badA - (b.predH.total + badB);
+        }).slice(0, 3).map(r => ({
+          ...r,
+          reason: sellReason(r)
+        }));
+
+        // 4) Заміни: та ж позиція, у бюджет (ціна проданого + банк), не з твого складу, ліміт 3/клуб
+        const bank = entry.last_deadline_bank ?? 0; // у десятих £
+        const clubCount = {};
+        for (const p of squad15) clubCount[p.team] = (clubCount[p.team] || 0) + 1;
+        const suggestions = sellPool.map(sell => {
+          const budget = sell.p.now_cost + bank;
+          const cands = players.filter(c => c.element_type === sell.p.element_type && !squadIds.has(c.id) && c.now_cost <= budget && c.status === 'a' && (c.minutes || 0) > 0).filter(c => (clubCount[c.team] || 0) - (sell.p.team === c.team ? 1 : 0) < 3).map(c => ({
+            c,
+            pred: predictPlayerPoints(c, teamsMap, fixtures, currentGW, ADVICE_HORIZON, weights)
+          })).sort((a, b) => b.pred.total - a.pred.total).slice(0, 3);
+          return {
+            sell,
+            cands
+          };
+        });
+        advice = {
+          captain,
+          vice,
+          bestXI,
+          benchAdv,
+          suggestions,
+          nextGW: rated[0].pred1.fixtures[0]?.gw ?? null
+        };
+      }
+    }
+  }
+
   // --- Склад останнього туру ---
   const squadPicks = (picks?.picks || []).map(pk => ({
     ...pk,
@@ -3414,7 +3508,107 @@ function MyTeamView({
   }, bench.map(pk => /*#__PURE__*/React.createElement(SquadSlot, {
     key: pk.element,
     pk: pk
-  })))), past.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  })))), advice && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "zap",
+    size: 14
+  }), " \u041F\u043E\u0440\u0430\u0434\u0438", advice.nextGW ? ` на GW${advice.nextGW}` : '', " ", /*#__PURE__*/React.createElement("span", {
+    className: "text-stone-600 normal-case"
+  }, "(\u043C\u043E\u0434\u0435\u043B\u044C v2.1 \u043F\u043E \u0442\u0432\u043E\u0454\u043C\u0443 \u0441\u043A\u043B\u0430\u0434\u0443)")), /*#__PURE__*/React.createElement("div", {
+    className: "grid md:grid-cols-2 gap-3 mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl border border-lime-500/30 bg-lime-950/15 p-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] uppercase tracking-wider text-stone-500 mb-2"
+  }, "\u041A\u0430\u043F\u0456\u0442\u0430\u043D \u0437 \u0442\u0432\u043E\u0457\u0445"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onPlayerClick(advice.captain.p),
+    className: "flex items-center justify-between w-full text-left hover:opacity-80"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-semibold text-lg flex items-center gap-2",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "crown",
+    size: 16,
+    className: "text-lime-400"
+  }), " ", advice.captain.p.web_name), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-lime-400"
+  }, advice.captain.pred1.total.toFixed(1), " xP")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onPlayerClick(advice.vice.p),
+    className: "flex items-center justify-between w-full text-left mt-2 text-sm text-stone-400 hover:text-stone-200"
+  }, /*#__PURE__*/React.createElement("span", null, "VC: ", advice.vice.p.web_name), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono"
+  }, advice.vice.pred1.total.toFixed(1), " xP"))), advice.bestXI && /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl border border-stone-800 bg-stone-900/40 p-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] uppercase tracking-wider text-stone-500 mb-2"
+  }, "\u041E\u043F\u0442\u0438\u043C\u0430\u043B\u044C\u043D\u0438\u0439 \u0441\u0442\u0430\u0440\u0442: ", advice.bestXI.formation, " ", /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-stone-400"
+  }, "(", advice.bestXI.total.toFixed(1), " xP)")), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-stone-300 leading-relaxed",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "\u041D\u0430 \u043B\u0430\u0432\u043A\u0443: ", advice.benchAdv.map((r, i) => /*#__PURE__*/React.createElement("span", {
+    key: r.p.id
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => onPlayerClick(r.p),
+    className: "text-stone-400 hover:text-lime-400 underline decoration-stone-700 underline-offset-2"
+  }, r.p.web_name), i < advice.benchAdv.length - 1 ? ', ' : ''))))), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, advice.suggestions.map(({
+    sell,
+    cands
+  }) => /*#__PURE__*/React.createElement("div", {
+    key: sell.p.id,
+    className: "rounded-xl border border-stone-800 bg-stone-900/30 p-3.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-3 flex-wrap"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => onPlayerClick(sell.p),
+    className: "flex items-center gap-2 text-left hover:opacity-80"
+  }, /*#__PURE__*/React.createElement(StatusDot, {
+    player: sell.p
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "font-semibold",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, sell.p.web_name), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-stone-500"
+  }, "\xA3", (sell.p.now_cost / 10).toFixed(1), "m \xB7 ", sell.predH.total.toFixed(1), " xP \u0437\u0430 ", ADVICE_HORIZON, " \u0442\u0443\u0440\u0456\u0432")), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs px-2 py-0.5 rounded bg-red-950/40 border border-red-500/25 text-red-300"
+  }, sell.reason)), cands.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mt-2.5 flex flex-wrap gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] text-stone-600 self-center"
+  }, "\u0437\u0430\u043C\u0456\u043D\u0438\u0442\u0438 \u043D\u0430:"), cands.map(({
+    c,
+    pred
+  }) => /*#__PURE__*/React.createElement("button", {
+    key: c.id,
+    onClick: () => onPlayerClick(c),
+    className: "px-2.5 py-1.5 rounded-lg border border-stone-800 bg-stone-950/60 hover:border-lime-500/40 text-left transition-colors"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-sm font-medium",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, c.web_name), /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] text-stone-500 ml-1.5"
+  }, "\xA3", (c.now_cost / 10).toFixed(1), "m \xB7 ", /*#__PURE__*/React.createElement("span", {
+    className: "text-lime-400 font-mono"
+  }, pred.total.toFixed(1), " xP")))))))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 text-[11px] text-stone-600",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "xP \u2014 \u043E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u043E\u0447\u043A\u0438 \u0437\u0430 \u043C\u043E\u0434\u0435\u043B\u043B\u044E (\u0437\u0430\u043C\u0456\u043D\u0438 \u2014 \u0432 \u043C\u0435\u0436\u0430\u0445 \u0442\u0432\u043E\u0433\u043E \u0431\u0430\u043D\u043A\u0443 \xA3", ((entry.last_deadline_bank ?? 0) / 10).toFixed(1), "m \u0456 \u043B\u0456\u043C\u0456\u0442\u0443 3 \u0437 \u043A\u043B\u0443\u0431\u0443). \u0426\u0435 \u043E\u0440\u0456\u0454\u043D\u0442\u0438\u0440, \u043D\u0435 \u0456\u0441\u0442\u0438\u043D\u0430 \u2014 \u0444\u0456\u043D\u0430\u043B\u044C\u043D\u0435 \u0440\u0456\u0448\u0435\u043D\u043D\u044F \u0437\u0430 \u0442\u043E\u0431\u043E\u044E \uD83D\uDE09")), past.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "text-sm uppercase tracking-wider text-stone-400 mb-3",
     style: {
       fontFamily: 'DM Sans, sans-serif'
@@ -4287,6 +4481,9 @@ function App() {
     players: players,
     teams: teams,
     events: bootstrap.events,
+    fixtures: fixtures,
+    currentGW: currentGW,
+    weights: weights,
     onPlayerClick: setSelectedPlayer
   }), view === 'players' && /*#__PURE__*/React.createElement(PlayersView, {
     players: players,
