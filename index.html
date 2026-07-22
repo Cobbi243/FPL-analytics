@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- HTML не кешується: оновлення сайту видно одразу, без ?v= хвостиків.
+       Зовнішні бібліотеки (React, Tailwind, шрифти) кешуються як завжди. -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>FPL.UA — Fantasy Premier League Аналітика</title>
   <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2314181a'/><text x='50' y='68' font-family='Georgia,serif' font-size='60' font-weight='600' text-anchor='middle' fill='%2354b384'>F</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -96,6 +101,9 @@ const {
   useMemo,
   useCallback
 } = React;
+
+// Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
+const BUILD_VERSION = '2026.07.22';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -4531,7 +4539,9 @@ function App() {
     className: "max-w-7xl mx-auto px-4 md:px-6 py-6 border-t border-stone-900 text-xs text-stone-600"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col md:flex-row justify-between gap-2"
-  }, /*#__PURE__*/React.createElement("div", null, "\u0414\u0430\u043D\u0456: \u043E\u0444\u0456\u0446\u0456\u0439\u043D\u0435 FPL API \xB7 \u0411\u0435\u0437 \u0430\u0444\u0456\u043B\u044F\u0446\u0456\u0457 \u0437 \u041F\u0440\u0435\u043C'\u0454\u0440-\u043B\u0456\u0433\u043E\u044E."), /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u043E\u0433\u043D\u043E\u0437\u0438 \u2014 \u043D\u0430\u0448\u0430 \u0435\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430, \u043D\u0435 \u0444\u0456\u043D\u0430\u043D\u0441\u043E\u0432\u0430 \u043F\u043E\u0440\u0430\u0434\u0430 \uD83D\uDE09")))), /*#__PURE__*/React.createElement(PlayerModal, {
+  }, /*#__PURE__*/React.createElement("div", null, "\u0414\u0430\u043D\u0456: \u043E\u0444\u0456\u0446\u0456\u0439\u043D\u0435 FPL API \xB7 \u0411\u0435\u0437 \u0430\u0444\u0456\u043B\u044F\u0446\u0456\u0457 \u0437 \u041F\u0440\u0435\u043C'\u0454\u0440-\u043B\u0456\u0433\u043E\u044E. ", /*#__PURE__*/React.createElement("span", {
+    className: "text-stone-700"
+  }, "\xB7 \u0437\u0431\u0456\u0440\u043A\u0430 ", BUILD_VERSION)), /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u043E\u0433\u043D\u043E\u0437\u0438 \u2014 \u043D\u0430\u0448\u0430 \u0435\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430, \u043D\u0435 \u0444\u0456\u043D\u0430\u043D\u0441\u043E\u0432\u0430 \u043F\u043E\u0440\u0430\u0434\u0430 \uD83D\uDE09")))), /*#__PURE__*/React.createElement(PlayerModal, {
     player: selectedPlayer,
     team: selectedPlayer ? teams.find(t => t.id === selectedPlayer.team) : null,
     fixtures: fixtures,
