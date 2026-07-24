@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.07.22';
+const BUILD_VERSION = '2026.07.24';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -670,8 +670,16 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
   let total = 0;
   const detailedFixtures = nextFixtures.map(f => {
     const opp = teamsMap[f.opponent];
-    const oppDef = opp ? (f.isHome ? opp.strength_defence_away : opp.strength_defence_home) || AVG_STRENGTH : AVG_STRENGTH;
-    const oppAtt = opp ? (f.isHome ? opp.strength_attack_away : opp.strength_attack_home) || AVG_STRENGTH : AVG_STRENGTH;
+    // Надійне читання сили: на старті сезону деталізованих рейтингів може не бути
+    const strOf = (team, key) => {
+      const v = team && team[key];
+      if (Number.isFinite(v) && v > 0) return v;
+      const gen = team && team.strength;
+      if (Number.isFinite(gen) && gen > 0) return 900 + gen * 100;
+      return AVG_STRENGTH;
+    };
+    const oppDef = strOf(opp, f.isHome ? 'strength_defence_away' : 'strength_defence_home');
+    const oppAtt = strOf(opp, f.isHome ? 'strength_attack_away' : 'strength_attack_home');
     const attackAdj = 1 + (AVG_STRENGTH / oppDef - 1) * adjScale;
     const concedeAdj = 1 + (oppAtt / AVG_STRENGTH - 1) * adjScale;
     const appearancePts = 2 * p60 + 1 * pCameo;
@@ -685,7 +693,8 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
     const oldBase = (form * 0.7 + ppg * 0.3) * w.form;
     const oldScore = Math.max(0, (oldBase + (3 - f.difficulty) * w.fdr + (f.isHome ? 0.3 : 0)) * minutesFactor * avail);
     const formBoost = 1 + Math.max(-0.15, Math.min(0.15, (form - ppg) * 0.03 * w.form));
-    const fixtureScore = Math.max(0, blendNew * newScore * formBoost + (1 - blendNew) * oldScore);
+    const rawScore = blendNew * newScore * formBoost + (1 - blendNew) * oldScore;
+    const fixtureScore = Number.isFinite(rawScore) ? Math.max(0, rawScore) : 0;
     total += fixtureScore;
     return {
       ...f,
@@ -740,25 +749,32 @@ function teamForecast(teams, fixtures, fromGW) {
   };
   const gw = Math.min(...upcoming.map(f => f.event));
   const gwFixtures = fixtures.filter(f => f.event === gw);
+
+  // Надійне читання сили команди: на старті сезону FPL може ще не проставити
+  // детальні рейтинги (тоді 0/undefined) — відкочуємось на загальний strength,
+  // а якщо і його немає — на середнє по лізі.
+  const str = (team, key) => {
+    const v = team && team[key];
+    if (Number.isFinite(v) && v > 0) return v;
+    const gen = team && team.strength; // 1..5 загальна оцінка
+    if (Number.isFinite(gen) && gen > 0) return 900 + gen * 100; // 1->1000 ... 5->1400
+    return AVG_STRENGTH;
+  };
   const rows = [];
   for (const f of gwFixtures) {
     const home = teamsById[f.team_h];
     const away = teamsById[f.team_a];
     if (!home || !away) continue;
-    const calc = (att, def, opp, isHome) => {
-      // сила атаки нашої команди проти сили захисту суперника
-      const attStr = isHome ? att.strength_attack_home : att.strength_attack_away;
-      const defStr = isHome ? opp.strength_defence_away : opp.strength_defence_home;
+    const calc = (att, opp, isHome) => {
+      const attStr = str(att, isHome ? 'strength_attack_home' : 'strength_attack_away');
+      const defStr = str(opp, isHome ? 'strength_defence_away' : 'strength_defence_home');
       const xGF = LEAGUE_AVG_GOALS * (attStr / AVG_STRENGTH) * (AVG_STRENGTH / defStr) * (isHome ? HOME_GOAL_MULT : 1 / HOME_GOAL_MULT);
-      return Math.max(0.15, xGF);
+      return Number.isFinite(xGF) ? Math.max(0.15, Math.min(5, xGF)) : LEAGUE_AVG_GOALS;
     };
-    const homeXGF = calc(home, null, away, true);
-    const awayXGF = calc(away, null, home, false);
-    // ймовірність сухаря = P(суперник не забʼє) = exp(-його xGF)
+    const homeXGF = calc(home, away, true);
+    const awayXGF = calc(away, home, false);
     const homeCS = Math.exp(-awayXGF);
     const awayCS = Math.exp(-homeXGF);
-    // ймовірність перемоги/нічиєї за Пуассоном (груба оцінка через різницю xGF)
-
     rows.push({
       fixtureId: f.id,
       gw,
@@ -768,7 +784,7 @@ function teamForecast(teams, fixtures, fromGW) {
         isHome: true,
         xGF: homeXGF,
         cs: homeCS,
-        fdr: f.team_h_difficulty
+        fdr: f.team_h_difficulty ?? 3
       },
       away: {
         team: away,
@@ -776,7 +792,7 @@ function teamForecast(teams, fixtures, fromGW) {
         isHome: false,
         xGF: awayXGF,
         cs: awayCS,
-        fdr: f.team_a_difficulty
+        fdr: f.team_a_difficulty ?? 3
       }
     });
   }
@@ -1444,7 +1460,14 @@ function PlayersView({
   const [search, setSearch] = useState('');
   const [posFilter, setPosFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
-  const [maxCost, setMaxCost] = useState(150);
+  // Стеля ціни рахується з реальних даних (щоб не застарівала між сезонами),
+  // округлена вгору до цілого мільйона + запас на зростання цін у сезоні
+  const priceCeiling = useMemo(() => {
+    const mx = players.reduce((m, p) => Math.max(m, p.now_cost || 0), 0);
+    return Math.max(150, Math.ceil((mx + 5) / 10) * 10);
+  }, [players]);
+  const [maxCost, setMaxCost] = useState(null);
+  const effectiveMaxCost = maxCost === null ? priceCeiling : maxCost;
   const [sortBy, setSortBy] = useState('predNext');
   const [sortDir, setSortDir] = useState('desc');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
@@ -1466,7 +1489,7 @@ function PlayersView({
     }
     if (posFilter !== 'all') res = res.filter(p => p.element_type === Number(posFilter));
     if (teamFilter !== 'all') res = res.filter(p => p.team?.id === Number(teamFilter));
-    res = res.filter(p => p.now_cost <= maxCost);
+    res = res.filter(p => p.now_cost <= effectiveMaxCost);
     if (onlyAvailable) res = res.filter(p => p.status === 'a');
     res = [...res].sort((a, b) => {
       let av, bv;
@@ -1518,7 +1541,7 @@ function PlayersView({
       return sortDir === 'desc' ? bv - av : av - bv;
     });
     return res.slice(0, 100);
-  }, [enriched, search, posFilter, teamFilter, maxCost, sortBy, sortDir, onlyAvailable]);
+  }, [enriched, search, posFilter, teamFilter, effectiveMaxCost, sortBy, sortDir, onlyAvailable]);
   const toggleSort = key => {
     if (sortBy === key) setSortDir(sortDir === 'desc' ? 'asc' : 'desc');else {
       setSortBy(key);
@@ -1595,13 +1618,13 @@ function PlayersView({
   }, "\u041C\u0430\u043A\u0441. \u0446\u0456\u043D\u0430:", /*#__PURE__*/React.createElement("input", {
     type: "range",
     min: "40",
-    max: "150",
-    value: maxCost,
+    max: priceCeiling,
+    value: effectiveMaxCost,
     onChange: e => setMaxCost(Number(e.target.value)),
     className: "accent-lime-500 w-24"
   }), /*#__PURE__*/React.createElement("span", {
     className: "font-mono text-stone-200 w-14"
-  }, "\xA3", (maxCost / 10).toFixed(1), "m"))), /*#__PURE__*/React.createElement("div", {
+  }, "\xA3", (effectiveMaxCost / 10).toFixed(1), "m"))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-x-auto rounded-xl border border-stone-800"
   }, /*#__PURE__*/React.createElement("table", {
     className: "w-full text-sm"
