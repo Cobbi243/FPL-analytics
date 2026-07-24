@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.07.24';
+const BUILD_VERSION = '2026.07.24b';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -670,12 +670,17 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
   let total = 0;
   const detailedFixtures = nextFixtures.map(f => {
     const opp = teamsMap[f.opponent];
-    // Надійне читання сили: на старті сезону деталізованих рейтингів може не бути
+    // Надійне читання сили: FPL заповнює поля поетапно (на старті сезону
+    // детальні = 0, але strength_overall_home/away 1-5 вже проставлені)
     const strOf = (team, key) => {
-      const v = team && team[key];
+      if (!team) return AVG_STRENGTH;
+      const v = team[key];
       if (Number.isFinite(v) && v > 0) return v;
-      const gen = team && team.strength;
-      if (Number.isFinite(gen) && gen > 0) return 900 + gen * 100;
+      const isHomeKey = key.endsWith('_home');
+      const ov = isHomeKey ? team.strength_overall_home : team.strength_overall_away;
+      if (Number.isFinite(ov) && ov > 0) return 850 + ov * 120;
+      const gen = team.strength;
+      if (Number.isFinite(gen) && gen > 0) return 850 + gen * 120;
       return AVG_STRENGTH;
     };
     const oppDef = strOf(opp, f.isHome ? 'strength_defence_away' : 'strength_defence_home');
@@ -750,14 +755,19 @@ function teamForecast(teams, fixtures, fromGW) {
   const gw = Math.min(...upcoming.map(f => f.event));
   const gwFixtures = fixtures.filter(f => f.event === gw);
 
-  // Надійне читання сили команди: на старті сезону FPL може ще не проставити
-  // детальні рейтинги (тоді 0/undefined) — відкочуємось на загальний strength,
-  // а якщо і його немає — на середнє по лізі.
+  // Надійне читання сили команди. FPL заповнює поля поетапно:
+  // на старті сезону детальні рейтинги = 0, а strength_overall_home/away (1-5) вже є.
+  // Порядок: детальний -> overall(1-5) -> загальний strength(1-5) -> середнє.
   const str = (team, key) => {
-    const v = team && team[key];
+    if (!team) return AVG_STRENGTH;
+    const v = team[key];
     if (Number.isFinite(v) && v > 0) return v;
-    const gen = team && team.strength; // 1..5 загальна оцінка
-    if (Number.isFinite(gen) && gen > 0) return 900 + gen * 100; // 1->1000 ... 5->1400
+    // overall для потрібної сторони (дім/виїзд) у шкалі 1-5
+    const isHomeKey = key.endsWith('_home');
+    const ov = isHomeKey ? team.strength_overall_home : team.strength_overall_away;
+    if (Number.isFinite(ov) && ov > 0) return 850 + ov * 120; // 1->970 ... 5->1450
+    const gen = team.strength;
+    if (Number.isFinite(gen) && gen > 0) return 850 + gen * 120;
     return AVG_STRENGTH;
   };
   const rows = [];
