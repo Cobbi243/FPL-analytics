@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.07.24d';
+const BUILD_VERSION = '2026.07.24e';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -1114,7 +1114,10 @@ function DashboardView({
   // Live season — predictions for next GW
   const enrichedLive = useMemo(() => {
     if (seasonEnded) return [];
-    return players.filter(p => p.status !== 'u' && parseFloat(p.form) > 0).map(p => {
+    // На старті сезону форма у всіх 0.0 — тоді не фільтруємо за нею,
+    // інакше списки були б порожні. Спираємось на прогноз і торішні очки.
+    const anyForm = players.some(p => parseFloat(p.form) > 0);
+    return players.filter(p => p.status !== 'u').filter(p => anyForm ? parseFloat(p.form) > 0 : p.minutes > 0 || p.total_points > 0).map(p => {
       const pred1 = predictPlayerPoints(p, teamsMap, fixtures, currentGW, 1, weights);
       const pred5 = predictPlayerPoints(p, teamsMap, fixtures, currentGW, 5, weights);
       return {
@@ -1304,9 +1307,14 @@ function DashboardView({
 
   // === LIVE SEASON VIEW ===
   const captainPicks = [...enrichedLive].sort((a, b) => b.predNext - a.predNext).slice(0, 5);
-  const onFire = [...enrichedLive].sort((a, b) => parseFloat(b.form) - parseFloat(a.form)).slice(0, 6);
+  const onFire = [...enrichedLive].sort((a, b) => {
+    const fa = parseFloat(a.form) || 0,
+      fb = parseFloat(b.form) || 0;
+    // на старті сезону форми ще немає — сортуємо за торішніми очками
+    return fb !== fa ? fb - fa : (b.total_points || 0) - (a.total_points || 0);
+  }).slice(0, 6);
   const valuePicks = [...enrichedLive].filter(p => p.now_cost <= 65).sort((a, b) => b.value - a.value).slice(0, 6);
-  const differentials = [...enrichedLive].filter(p => parseFloat(p.selected_by_percent) < 10 && p.predNext > 3).sort((a, b) => b.predNext * differentialBoost(b) - a.predNext * differentialBoost(a)).slice(0, 6);
+  const differentials = [...enrichedLive].filter(p => parseFloat(p.selected_by_percent) < 10 && p.predNext > (enrichedLive.some(x => x.predNext > 3) ? 3 : 0)).sort((a, b) => b.predNext * differentialBoost(b) - a.predNext * differentialBoost(a)).slice(0, 6);
   const captainOfWeek = captainPicks[0];
   return /*#__PURE__*/React.createElement("div", {
     className: "space-y-8"
