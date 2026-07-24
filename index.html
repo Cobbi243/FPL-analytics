@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.07.24b';
+const BUILD_VERSION = '2026.07.24c';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -640,14 +640,17 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
   const ppg = parseFloat(player.points_per_game) || 0;
   const avail = availabilityFactor(player);
 
-  // Скільки матчів зіграла КОМАНДА (для оцінки ротації гравця)
-  const rounds = Math.max(1, fixtures.filter(f => f.finished && (f.team_h === player.team || f.team_a === player.team)).length);
+  // Скільки матчів зіграла КОМАНДА (для оцінки ротації гравця).
+  // На старті сезону завершених матчів немає — тоді за базу беремо повний
+  // сезон (38 турів), бо статистика гравця у даних ще торішня.
+  const playedRounds = fixtures.filter(f => f.finished && (f.team_h === player.team || f.team_a === player.team)).length;
+  const rounds = playedRounds > 0 ? playedRounds : 38;
   const starts = Math.min(player.starts || 0, rounds);
   // Виходи з лавки: оцінка з "зайвих" хвилин (старт ≈ 84 хв, камео ≈ 25 хв)
   const cameos = Math.max(0, Math.min(rounds - starts, Math.round((mins - 84 * starts) / 25)));
   const p60 = Math.min(1, starts / rounds);
   const pCameo = Math.min(1 - p60, cameos / rounds);
-  const expMins = mins / rounds; // очікувані хвилини на матч команди
+  const expMins = Math.min(90, mins / rounds); // очікувані хвилини на матч команди (не більше 90)
 
   const minutesFactor = w.minutes > 0 ? mins > 1000 ? 1.0 : mins > 500 ? 0.85 : mins > 200 ? 0.7 : 0.5 : 1.0;
 
