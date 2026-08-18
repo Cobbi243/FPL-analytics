@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.07.24j';
+const BUILD_VERSION = '2026.08.01';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -806,14 +806,30 @@ function teamForecast(teams, fixtures, fromGW) {
     const home = teamsById[f.team_h];
     const away = teamsById[f.team_a];
     if (!home || !away) continue;
-    const calc = (att, opp, isHome) => {
-      const attStr = str(att, isHome ? 'strength_attack_home' : 'strength_attack_away');
-      const defStr = str(opp, isHome ? 'strength_defence_away' : 'strength_defence_home');
-      const xGF = LEAGUE_AVG_GOALS * (attStr / AVG_STRENGTH) * (AVG_STRENGTH / defStr) * (isHome ? HOME_GOAL_MULT : 1 / HOME_GOAL_MULT);
-      return Number.isFinite(xGF) ? Math.max(0.15, Math.min(5, xGF)) : LEAGUE_AVG_GOALS;
+
+    // Сила команди в шкалі 1-5 (overall) — окремо для дому й виїзду
+    const tier = (team, isHome) => {
+      const ov = isHome ? team.strength_overall_home : team.strength_overall_away;
+      if (Number.isFinite(ov) && ov > 0) return ov;
+      if (Number.isFinite(team.strength) && team.strength > 0) return team.strength;
+      return 3;
     };
-    const homeXGF = calc(home, away, true);
-    const awayXGF = calc(away, home, false);
+    // FDR матчу (1 = дуже легко, 5 = дуже складно) — найточніший сигнал,
+    // бо FPL проставляє його з урахуванням конкретної пари й поля.
+    const fdrH = f.team_h_difficulty ?? 3;
+    const fdrA = f.team_a_difficulty ?? 3;
+
+    // Множник атаки від складності суперника: легкий суперник (FDR 2) -> ~1.45x,
+    // складний (FDR 5) -> ~0.55x. Дає реалістичний розкид 0.6-2.6 гола.
+    const fromFDR = fdr => Math.pow(1.32, 3 - fdr);
+    // Додаткова поправка на власний клас команди (topова атака забиває більше)
+    const fromTier = t => 1 + (t - 3) * 0.14;
+    const calc = (att, opp, isHome, myFdr) => {
+      const xGF = LEAGUE_AVG_GOALS * fromFDR(myFdr) * fromTier(tier(att, isHome)) * (isHome ? HOME_GOAL_MULT : 1 / HOME_GOAL_MULT);
+      return Number.isFinite(xGF) ? Math.max(0.25, Math.min(4, xGF)) : LEAGUE_AVG_GOALS;
+    };
+    const homeXGF = calc(home, away, true, fdrH);
+    const awayXGF = calc(away, home, false, fdrA);
     const homeCS = Math.exp(-awayXGF);
     const awayCS = Math.exp(-homeXGF);
     rows.push({
