@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.08.01';
+const BUILD_VERSION = '2026.08.01b';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -773,7 +773,10 @@ function differentialBoost(player) {
 // Сухар за Пуассоном: P(0 пропущених) = exp(-очікувані пропущені).
 // ============================================================
 const LEAGUE_AVG_GOALS = 1.45; // середні голи команди за матч в АПЛ
-const HOME_GOAL_MULT = 1.1; // невелика домашня перевага
+const HOME_GOAL_MULT = 1.04; // домашня перевага (підібрано під ринкові проєкції)
+const FDR_BASE = 1.10; // наскільки складність матчу впливає на очікувані голи
+const ATTACK_W = 0.20; // вага класу власної атаки
+const OPP_DEF_W = 0.04; // вага класу захисту суперника
 
 function teamForecast(teams, fixtures, fromGW) {
   const teamsById = Object.fromEntries(teams.map(t => [t.id, t]));
@@ -819,13 +822,13 @@ function teamForecast(teams, fixtures, fromGW) {
     const fdrH = f.team_h_difficulty ?? 3;
     const fdrA = f.team_a_difficulty ?? 3;
 
-    // Множник атаки від складності суперника: легкий суперник (FDR 2) -> ~1.45x,
-    // складний (FDR 5) -> ~0.55x. Дає реалістичний розкид 0.6-2.6 гола.
-    const fromFDR = fdr => Math.pow(1.32, 3 - fdr);
-    // Додаткова поправка на власний клас команди (topова атака забиває більше)
-    const fromTier = t => 1 + (t - 3) * 0.14;
+    // Коефіцієнти підібрані під ринкові xG-проєкції (середня похибка ~0.11 гола).
+    // FDR матчу — основний сигнал, клас своєї атаки і класу захисту суперника — уточнення.
+    const fromFDR = fdr => Math.pow(FDR_BASE, 3 - fdr);
+    const fromAttack = t => 1 + (t - 3) * ATTACK_W;
+    const fromOppDefence = t => 1 + (3 - t) * OPP_DEF_W;
     const calc = (att, opp, isHome, myFdr) => {
-      const xGF = LEAGUE_AVG_GOALS * fromFDR(myFdr) * fromTier(tier(att, isHome)) * (isHome ? HOME_GOAL_MULT : 1 / HOME_GOAL_MULT);
+      const xGF = LEAGUE_AVG_GOALS * fromFDR(myFdr) * fromAttack(tier(att, isHome)) * fromOppDefence(tier(opp, !isHome)) * (isHome ? HOME_GOAL_MULT : 1 / HOME_GOAL_MULT);
       return Number.isFinite(xGF) ? Math.max(0.25, Math.min(4, xGF)) : LEAGUE_AVG_GOALS;
     };
     const homeXGF = calc(home, away, true, fdrH);
