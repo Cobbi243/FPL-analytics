@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.08.01b';
+const BUILD_VERSION = '2026.08.01c';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -874,6 +874,116 @@ function teamForecast(teams, fixtures, fromGW) {
     gw,
     rows,
     flat
+  };
+}
+
+// ============================================================
+// ПЛАНУВАЛЬНИК ЧИПІВ
+// Рахує прогноз твоїх 15 гравців по кожному з майбутніх турів
+// і підказує, де найвигідніше зіграти кожен чип.
+// Враховує подвійні тури (2 матчі за GW) і порожні (жодного).
+// ============================================================
+const CHIP_DEADLINE_GW = 19; // перший комплект чипів діє до GW19 включно
+
+function planChips(squad, teamsMap, fixtures, fromGW, weights, horizonEnd) {
+  if (!squad || squad.length < 11) return null;
+  const endGW = horizonEnd || CHIP_DEADLINE_GW;
+  const gws = [];
+  for (let gw = fromGW; gw <= endGW; gw++) gws.push(gw);
+  if (gws.length === 0) return null;
+
+  // Для кожного туру рахуємо прогноз кожного гравця з урахуванням
+  // кількості його матчів у цьому турі (0 = порожній, 2 = подвійний)
+  const perGW = gws.map(gw => {
+    const rows = squad.map(p => {
+      const gwFixtures = fixtures.filter(f => f.event === gw && !f.finished && (f.team_h === p.team || f.team_a === p.team));
+      const matches = gwFixtures.length;
+      let pred = 0;
+      if (matches > 0) {
+        // predictPlayerPoints рахує з fromGW; беремо прогноз саме цього туру
+        const r = predictPlayerPoints(p, teamsMap, fixtures, gw, matches, weights);
+        pred = r.total;
+      }
+      return {
+        player: p,
+        matches,
+        pred
+      };
+    });
+
+    // Оптимальна одинадцятка цього туру (валідна формація)
+    const byPos = {
+      1: [],
+      2: [],
+      3: [],
+      4: []
+    };
+    rows.forEach(r => byPos[r.player.element_type].push(r));
+    Object.values(byPos).forEach(arr => arr.sort((a, b) => b.pred - a.pred));
+    let bestXI = null;
+    for (const d of [3, 4, 5]) for (const m of [2, 3, 4, 5]) for (const f of [1, 2, 3]) {
+      if (1 + d + m + f !== 11) continue;
+      if (byPos[1].length < 1 || byPos[2].length < d || byPos[3].length < m || byPos[4].length < f) continue;
+      const xi = [...byPos[1].slice(0, 1), ...byPos[2].slice(0, d), ...byPos[3].slice(0, m), ...byPos[4].slice(0, f)];
+      const total = xi.reduce((s, r) => s + r.pred, 0);
+      if (!bestXI || total > bestXI.total) bestXI = {
+        xi,
+        total,
+        formation: `${d}-${m}-${f}`
+      };
+    }
+    const xiIds = new Set((bestXI?.xi || []).map(r => r.player.id));
+    const bench = rows.filter(r => !xiIds.has(r.player.id));
+    const benchTotal = bench.reduce((s, r) => s + r.pred, 0);
+    const blanks = rows.filter(r => r.matches === 0).length;
+    const doubles = rows.filter(r => r.matches >= 2).length;
+    const best = [...rows].sort((a, b) => b.pred - a.pred)[0];
+    return {
+      gw,
+      xiTotal: bestXI?.total || 0,
+      formation: bestXI?.formation || '—',
+      benchTotal,
+      bench: bench.map(r => ({
+        name: r.player.web_name,
+        pred: r.pred,
+        matches: r.matches
+      })),
+      blanks,
+      doubles,
+      bestPlayer: best ? {
+        name: best.player.web_name,
+        pred: best.pred,
+        matches: best.matches
+      } : null,
+      playing: rows.filter(r => r.matches > 0).length
+    };
+  });
+  const byBench = [...perGW].sort((a, b) => b.benchTotal - a.benchTotal);
+  const byCaptain = [...perGW].sort((a, b) => (b.bestPlayer?.pred || 0) - (a.bestPlayer?.pred || 0));
+  const byWeakest = [...perGW].sort((a, b) => a.xiTotal - b.xiTotal);
+  return {
+    range: {
+      from: fromGW,
+      to: endGW
+    },
+    perGW,
+    benchBoost: byBench[0],
+    tripleCaptain: byCaptain[0],
+    freeHit: byWeakest[0],
+    // Wildcard: тур перед найгіршим відрізком (щоб перебудуватись завчасно)
+    wildcard: (() => {
+      // ковзне вікно з 3 турів — де сума найнижча
+      let worst = null;
+      for (let i = 0; i + 2 < perGW.length; i++) {
+        const sum = perGW[i].xiTotal + perGW[i + 1].xiTotal + perGW[i + 2].xiTotal;
+        if (!worst || sum < worst.sum) worst = {
+          sum,
+          startGW: perGW[i].gw,
+          avg: sum / 3
+        };
+      }
+      return worst;
+    })()
   };
 }
 function optimizeSquad(players, teamsMap, fixtures, fromGW, options = {}) {
@@ -3655,12 +3765,14 @@ function MyTeamView({
             cands
           };
         });
+        const chipPlan = planChips(squad15, teamsMap, fixtures, currentGW, weights);
         advice = {
           captain,
           vice,
           bestXI,
           benchAdv,
           suggestions,
+          chipPlan,
           nextGW: rated[0].pred1.fixtures[0]?.gw ?? null
         };
       }
@@ -3907,7 +4019,83 @@ function MyTeamView({
     className: "text-[11px] text-stone-500 ml-1.5"
   }, "\xA3", (c.now_cost / 10).toFixed(1), "m \xB7 ", /*#__PURE__*/React.createElement("span", {
     className: "text-lime-400 font-mono"
-  }, pred.total.toFixed(1), " xP")))))))), /*#__PURE__*/React.createElement("div", {
+  }, pred.total.toFixed(1), " xP")))))))), advice.chipPlan && /*#__PURE__*/React.createElement("div", {
+    className: "mt-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-400 mb-1 flex items-center gap-2",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "sparkles",
+    size: 14
+  }), " \u041A\u043E\u043B\u0438 \u0433\u0440\u0430\u0442\u0438 \u0447\u0438\u043F\u0438"), /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-stone-600 mb-3",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "\u041F\u0435\u0440\u0448\u0438\u0439 \u043A\u043E\u043C\u043F\u043B\u0435\u043A\u0442 \u0434\u0456\u0454 \u0434\u043E GW", advice.chipPlan.range.to, " \xB7 \u0440\u043E\u0437\u0440\u0430\u0445\u0443\u043D\u043E\u043A \u0437\u0430 \u0442\u0432\u043E\u0457\u043C \u043F\u043E\u0442\u043E\u0447\u043D\u0438\u043C \u0441\u043A\u043B\u0430\u0434\u043E\u043C \u0456 \u043A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u0435\u043C"), /*#__PURE__*/React.createElement("div", {
+    className: "grid md:grid-cols-2 gap-3"
+  }, [{
+    key: 'benchBoost',
+    name: 'Bench Boost',
+    icon: 'users',
+    color: 'lime',
+    gw: advice.chipPlan.benchBoost?.gw,
+    metric: advice.chipPlan.benchBoost ? `${advice.chipPlan.benchBoost.benchTotal.toFixed(1)} xP з лавки` : null,
+    detail: advice.chipPlan.benchBoost?.bench?.slice().sort((a, b) => b.pred - a.pred).map(b => `${b.name} ${b.pred.toFixed(1)}${b.matches >= 2 ? ' (×2)' : b.matches === 0 ? ' (не грає)' : ''}`).join(' · ')
+  }, {
+    key: 'tripleCaptain',
+    name: 'Triple Captain',
+    icon: 'crown',
+    color: 'amber',
+    gw: advice.chipPlan.tripleCaptain?.gw,
+    metric: advice.chipPlan.tripleCaptain?.bestPlayer ? `${advice.chipPlan.tripleCaptain.bestPlayer.name} · ${advice.chipPlan.tripleCaptain.bestPlayer.pred.toFixed(1)} xP` : null,
+    detail: advice.chipPlan.tripleCaptain?.bestPlayer?.matches >= 2 ? 'подвійний тур — два матчі' : 'найкращий прогноз серед твоїх у цьому вікні'
+  }, {
+    key: 'freeHit',
+    name: 'Free Hit',
+    icon: 'refresh',
+    color: 'sky',
+    gw: advice.chipPlan.freeHit?.gw,
+    metric: advice.chipPlan.freeHit ? `твій склад найслабший: ${advice.chipPlan.freeHit.xiTotal.toFixed(1)} xP` : null,
+    detail: advice.chipPlan.freeHit?.blanks > 0 ? `${advice.chipPlan.freeHit.blanks} гравців без матчу` : 'найважчий календар для твоїх гравців'
+  }, {
+    key: 'wildcard',
+    name: 'Wildcard',
+    icon: 'zap',
+    color: 'purple',
+    gw: advice.chipPlan.wildcard?.startGW,
+    metric: advice.chipPlan.wildcard ? `слабкий відрізок: ~${advice.chipPlan.wildcard.avg.toFixed(1)} xP/тур` : null,
+    detail: 'перебудувати склад перед трьома складними турами'
+  }].map(chip => /*#__PURE__*/React.createElement("div", {
+    key: chip.key,
+    className: "rounded-xl border border-stone-800 bg-stone-900/40 p-3.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-2 mb-1.5"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-sm font-semibold flex items-center gap-1.5",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: chip.icon,
+    size: 14,
+    className: "text-stone-500"
+  }), " ", chip.name), chip.gw ? /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-lime-400 text-sm"
+  }, "GW", chip.gw) : /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-stone-600"
+  }, "\u2014")), chip.metric && /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-stone-300"
+  }, chip.metric), chip.detail && /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-stone-600 mt-1 leading-snug"
+  }, chip.detail)))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 text-[11px] text-stone-600",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "\u041F\u043E\u0434\u0432\u0456\u0439\u043D\u0456 \u0439 \u043F\u043E\u0440\u043E\u0436\u043D\u0456 \u0442\u0443\u0440\u0438 \u0441\u0442\u0430\u044E\u0442\u044C \u0432\u0456\u0434\u043E\u043C\u0456 \u043F\u043E\u0441\u0435\u0440\u0435\u0434 \u0441\u0435\u0437\u043E\u043D\u0443 \u2014 \u0442\u043E\u0434\u0456 \u0446\u0456 \u043F\u0456\u0434\u043A\u0430\u0437\u043A\u0438 \u0441\u0442\u0430\u043D\u0443\u0442\u044C \u0442\u043E\u0447\u043D\u0456\u0448\u0438\u043C\u0438. \u0414\u0440\u0443\u0433\u0438\u0439 \u043A\u043E\u043C\u043F\u043B\u0435\u043A\u0442 \u0447\u0438\u043F\u0456\u0432 \u0432\u0438\u0434\u0430\u0454\u0442\u044C\u0441\u044F \u043D\u0430 \u0434\u0440\u0443\u0433\u0443 \u043F\u043E\u043B\u043E\u0432\u0438\u043D\u0443 \u0441\u0435\u0437\u043E\u043D\u0443.")), /*#__PURE__*/React.createElement("div", {
     className: "mt-2 text-[11px] text-stone-600",
     style: {
       fontFamily: 'DM Sans, sans-serif'
