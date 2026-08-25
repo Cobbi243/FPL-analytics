@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.08.01c';
+const BUILD_VERSION = '2026.08.25';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -586,12 +586,17 @@ async function loadMyTeam(entryId, fallbackGW) {
 // ANALYTICS
 // ============================================================
 function getCurrentGW(events) {
-  const current = events.find(e => e.is_current);
-  if (current && !current.finished) return current.id;
-  const next = events.find(e => e.is_next);
-  if (next) return next.id;
-  const lastFinished = [...events].reverse().find(e => e.finished);
-  return lastFinished ? lastFinished.id : 1;
+  if (!events || events.length === 0) return 1;
+  const now = Date.now();
+  // Поточним вважаємо перший тур, чий дедлайн ще НЕ минув — саме в ньому
+  // можна робити трансфери, ставити капітана і грати чипи.
+  // (Прапорець finished ненадійний: FPL ставить його лише через добу
+  // після останнього матчу, коли остаточно звірить дані.)
+  const upcoming = [...events].filter(e => e.deadline_time && Date.parse(e.deadline_time) > now).sort((a, b) => Date.parse(a.deadline_time) - Date.parse(b.deadline_time))[0];
+  if (upcoming) return upcoming.id;
+  // Дедлайнів попереду немає — сезон завершено, показуємо останній тур
+  const lastFinished = [...events].reverse().find(e => e.finished || e.is_current);
+  return lastFinished ? lastFinished.id : events[events.length - 1].id;
 }
 function getNextFixtures(teamId, fixtures, fromGW, count = 5) {
   return fixtures.filter(f => !f.finished && f.event !== null && f.event >= fromGW && (f.team_h === teamId || f.team_a === teamId)).sort((a, b) => a.event - b.event).slice(0, count).map(f => ({
@@ -885,11 +890,20 @@ function teamForecast(teams, fixtures, fromGW) {
 // ============================================================
 const CHIP_DEADLINE_GW = 19; // перший комплект чипів діє до GW19 включно
 
-function planChips(squad, teamsMap, fixtures, fromGW, weights, horizonEnd) {
+function planChips(squad, teamsMap, fixtures, fromGW, weights, horizonEnd, events) {
   if (!squad || squad.length < 11) return null;
   const endGW = horizonEnd || CHIP_DEADLINE_GW;
+  const now = Date.now();
+  // Пропускаємо тури, чий дедлайн уже минув — чип у них зіграти неможливо
+  const deadlinePassed = gw => {
+    if (!events) return false;
+    const ev = events.find(e => e.id === gw);
+    return ev && ev.deadline_time && Date.parse(ev.deadline_time) <= now;
+  };
   const gws = [];
-  for (let gw = fromGW; gw <= endGW; gw++) gws.push(gw);
+  for (let gw = fromGW; gw <= endGW; gw++) {
+    if (!deadlinePassed(gw)) gws.push(gw);
+  }
   if (gws.length === 0) return null;
 
   // Для кожного туру рахуємо прогноз кожного гравця з урахуванням
@@ -3765,7 +3779,7 @@ function MyTeamView({
             cands
           };
         });
-        const chipPlan = planChips(squad15, teamsMap, fixtures, currentGW, weights);
+        const chipPlan = planChips(squad15, teamsMap, fixtures, currentGW, weights, null, events);
         advice = {
           captain,
           vice,
