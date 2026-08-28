@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.08.25';
+const BUILD_VERSION = '2026.08.25b';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -677,20 +677,57 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
 
   const minutesFactor = w.minutes > 0 ? mins > 1000 ? 1.0 : mins > 500 ? 0.85 : mins > 200 ? 0.7 : 0.5 : 1.0;
 
-  // Показники на 90 хвилин
-  const per90 = v => mins > 0 ? (parseFloat(v) || 0) / (mins / 90) : 0;
-  const xG90 = per90(player.expected_goals);
-  const xA90 = per90(player.expected_assists);
-  const xGC90 = per90(player.expected_goals_conceded);
+  // ---- Показники на 90 хвилин з РЕГРЕСІЄЮ ДО СЕРЕДНЬОГО ----
+  // Мала вибірка бреше: 1-2 матчі не доводять, що гравець забиватиме так завжди.
+  // Тому власні цифри гравця змішуємо з типовими для його позиції, і вага
+  // власних даних росте з накопиченням хвилин (повна довіра ~900 хв = 10 матчів).
+  const rawPer90 = v => mins > 0 ? (parseFloat(v) || 0) / (mins / 90) : 0;
+  const PRIOR_MINUTES = 540; // "сила" середнього: еквівалент 6 матчів
+  const trust = mins / (mins + PRIOR_MINUTES); // 180хв -> 0.25, 900хв -> 0.63, 1800хв -> 0.77
+  const shrink = (own, prior) => own * trust + prior * (1 - trust);
+
+  // Типові показники на 90 хв за позиціями (з торішньої статистики АПЛ)
+  const PRIOR_XG90 = {
+    1: 0.00,
+    2: 0.05,
+    3: 0.15,
+    4: 0.35
+  };
+  const PRIOR_XA90 = {
+    1: 0.00,
+    2: 0.07,
+    3: 0.15,
+    4: 0.13
+  };
+  const PRIOR_XGC90 = {
+    1: 1.45,
+    2: 1.45,
+    3: 1.45,
+    4: 1.45
+  };
+  const pos = player.element_type;
+  const xG90 = shrink(rawPer90(player.expected_goals), PRIOR_XG90[pos]);
+  const xA90 = shrink(rawPer90(player.expected_assists), PRIOR_XA90[pos]);
+  const xGC90 = shrink(rawPer90(player.expected_goals_conceded), PRIOR_XGC90[pos]);
 
   // "Інші очки" (бонуси, сейви, DefCon, мінуси за картки/пропущені) —
   // залишок реальних очок після голів/асистів/сухарів/виходів
   const appearanceCum = 2 * starts + cameos;
   const explained = (player.goals_scored || 0) * GOAL_VALUE[player.element_type] + (player.assists || 0) * 3 + (player.clean_sheets || 0) * CS_VALUE[player.element_type] + appearanceCum;
-  const other90 = mins > 0 ? Math.max(-1, Math.min(3, ((player.total_points || 0) - explained) / (mins / 90))) : 0;
+  // Ті самі перестороги: після 1-2 турів "залишок" (бонуси/сейви/DefCon)
+  // може виглядати захмарним. Стискаємо до типового рівня позиції.
+  const PRIOR_OTHER90 = {
+    1: 1.2,
+    2: 0.8,
+    3: 0.6,
+    4: 0.5
+  };
+  const rawOther90 = mins > 0 ? Math.max(-1, Math.min(3, ((player.total_points || 0) - explained) / (mins / 90))) : 0;
+  const other90 = shrink(rawOther90, PRIOR_OTHER90[pos]);
 
-  // Вага нової моделі росте з вибіркою: 0 хвилин -> стара формула, 450+ -> нова
-  const blendNew = Math.min(1, mins / 450);
+  // Нова модель (xG-based) тепер уже має власний захист від малої вибірки,
+  // тож переходимо на неї швидше — стара формула надто чутлива до форми.
+  const blendNew = Math.min(1, mins / 270);
   // Сила коригування на суперника керується слайдером FDR (0.5 = стандарт)
   const adjScale = Math.min(2, w.fdr / 0.5);
   let total = 0;
@@ -721,9 +758,13 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
     const newScore = (appearancePts + attackPts + csPts + otherPts + homeBonus) * avail;
 
     // Стара формула (форма/PPG + FDR) — для змішування і як база для новачків
-    const oldBase = (form * 0.7 + ppg * 0.3) * w.form;
+    // Форма (останні 4 матчі) шумна — сезонний PPG надійніший орієнтир
+    const oldBase = (form * 0.35 + ppg * 0.65) * w.form;
     const oldScore = Math.max(0, (oldBase + (3 - f.difficulty) * w.fdr + (f.isHome ? 0.3 : 0)) * minutesFactor * avail);
-    const formBoost = 1 + Math.max(-0.15, Math.min(0.15, (form - ppg) * 0.03 * w.form));
+
+    // Невеликий бонус за "гарячість", але жорстко обмежений: спалах в одному
+    // турі не має підіймати прогноз у півтора раза.
+    const formBoost = 1 + Math.max(-0.10, Math.min(0.10, (form - ppg) * 0.02 * w.form));
     const rawScore = blendNew * newScore * formBoost + (1 - blendNew) * oldScore;
     const fixtureScore = Number.isFinite(rawScore) ? Math.max(0, rawScore) : 0;
     total += fixtureScore;
