@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.08.25d';
+const BUILD_VERSION = '2026.08.25e';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -750,8 +750,15 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
     };
     const oppDef = strOf(opp, f.isHome ? 'strength_defence_away' : 'strength_defence_home');
     const oppAtt = strOf(opp, f.isHome ? 'strength_attack_away' : 'strength_attack_home');
-    const attackAdj = 1 + (AVG_STRENGTH / oppDef - 1) * adjScale;
-    const concedeAdj = 1 + (oppAtt / AVG_STRENGTH - 1) * adjScale;
+    // Поправка на суперника з ДВОХ джерел: рейтинг сили + FDR конкретного матчу.
+    // FDR точніший (FPL враховує форму й пару команд), тому важить більше.
+    // Проти найлегшого суперника атака ~1.7x, проти найважчого ~0.6x.
+    const fromRating = AVG_STRENGTH / oppDef;
+    const fromFDR = Math.pow(1.22, 3 - (f.difficulty ?? 3));
+    const attackRaw = Math.pow(fromRating, 0.5) * Math.pow(fromFDR, 1.2);
+    const attackAdj = 1 + (attackRaw - 1) * adjScale;
+    const concedeRaw = Math.pow(oppAtt / AVG_STRENGTH, 0.5) * Math.pow(1 / fromFDR, 0.8);
+    const concedeAdj = 1 + (concedeRaw - 1) * adjScale;
     const appearancePts = 2 * p60 + 1 * pCameo;
     const attackPts = (xG90 * GOAL_VALUE[player.element_type] + xA90 * 3) * (expMins / 90) * attackAdj;
     const csPts = p60 * Math.exp(-(xGC90 * concedeAdj)) * CS_VALUE[player.element_type];
