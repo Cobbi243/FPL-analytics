@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.08.25b';
+const BUILD_VERSION = '2026.08.25c';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -768,15 +768,29 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
     const rawScore = blendNew * newScore * formBoost + (1 - blendNew) * oldScore;
     const fixtureScore = Number.isFinite(rawScore) ? Math.max(0, rawScore) : 0;
     total += fixtureScore;
+    // Розклад прогнозу — щоб показати, з чого складається оцінка
+    const xGFix = xG90 * (expMins / 90) * attackAdj;
+    const xAFix = xA90 * (expMins / 90) * attackAdj;
+    const csProb = p60 * Math.exp(-(xGC90 * concedeAdj));
     return {
       ...f,
-      score: fixtureScore
+      score: fixtureScore,
+      xG: Number.isFinite(xGFix) ? xGFix : 0,
+      xA: Number.isFinite(xAFix) ? xAFix : 0,
+      csProb: Number.isFinite(csProb) ? csProb : 0,
+      expMins
     };
   });
+  const sum = k => detailedFixtures.reduce((s, f) => s + (f[k] || 0), 0);
   return {
     total,
     perGW: total / nextFixtures.length,
     fixtures: detailedFixtures,
+    // Очікувані показники за весь запитаний горизонт
+    xG: sum('xG') * avail,
+    xA: sum('xA') * avail,
+    csProb: detailedFixtures.length ? sum('csProb') / detailedFixtures.length * avail : 0,
+    expMins,
     breakdown: {
       form,
       avail,
@@ -784,7 +798,9 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
       count: nextFixtures.length,
       xG90: +xG90.toFixed(2),
       xA90: +xA90.toFixed(2),
-      blendNew: +blendNew.toFixed(2)
+      xGC90: +xGC90.toFixed(2),
+      blendNew: +blendNew.toFixed(2),
+      trust: +trust.toFixed(2)
     }
   };
 }
@@ -1706,10 +1722,13 @@ function PlayersView({
   const [onlyAvailable, setOnlyAvailable] = useState(false);
   const enriched = useMemo(() => players.map(p => {
     const pred = predictPlayerPoints(p, teamsMap, fixtures, currentGW, 5, weights);
+    const pred1 = predictPlayerPoints(p, teamsMap, fixtures, currentGW, 1, weights);
     return {
       ...p,
       team: teamsMap[p.team],
-      predNext: predictPlayerPoints(p, teamsMap, fixtures, currentGW, 1, weights).total,
+      predNext: pred1.total,
+      xgNext: pred1.xG + pred1.xA,
+      // очікувана участь у голах наступного туру
       pred5: pred.total,
       value: valueScore(p)
     };
@@ -1872,6 +1891,9 @@ function PlayersView({
     k: "predNext",
     align: "right"
   }, "\u041D\u0430\u0441\u0442. \u0442\u0443\u0440"), /*#__PURE__*/React.createElement(SortHeader, {
+    k: "xgNext",
+    align: "right"
+  }, "xG+xA \u043D\u0430\u0441\u0442."), /*#__PURE__*/React.createElement(SortHeader, {
     k: "pred5",
     align: "right"
   }, "5 \u0442\u0443\u0440\u0456\u0432"), /*#__PURE__*/React.createElement(SortHeader, {
@@ -1917,6 +1939,8 @@ function PlayersView({
   }, "\xA3", (p.now_cost / 10).toFixed(1)), /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 text-right font-mono text-lime-400"
   }, p.predNext.toFixed(1)), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 text-right font-mono text-stone-300"
+  }, p.xgNext.toFixed(2)), /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 text-right font-mono text-stone-300"
   }, p.pred5.toFixed(1)), /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 text-right font-mono text-stone-300"
@@ -2600,6 +2624,9 @@ function PlayerModal({
   if (!player) return null;
   const teamsMap = Object.fromEntries(teams.map(t => [t.id, t]));
   const nextFixtures = getNextFixtures(player.team, fixtures, currentGW, 6);
+  // Прогноз на наступний тур і на 5 турів — із розкладом (xG, xA, сухар)
+  const predNext = predictPlayerPoints(player, teamsMap, fixtures, currentGW, 1);
+  const pred5 = predictPlayerPoints(player, teamsMap, fixtures, currentGW, 5);
   const chartData = (history || []).map(h => ({
     gw: h.round,
     actual: h.total_points,
@@ -2859,7 +2886,62 @@ function PlayerModal({
     }))), /*#__PURE__*/React.createElement("div", {
       className: "mt-1 text-xs text-stone-400 text-center font-mono"
     }, "\u0426\u0456\u043D\u0430: \xA3", prices[0].toFixed(1), "m \u2192 \xA3", prices[prices.length - 1].toFixed(1), "m \xB7 \u0412\u043B\u0430\u0441\u043D\u0456\u0441\u0442\u044C: ", owns[0].toFixed(1), "% \u2192 ", owns[owns.length - 1].toFixed(1), "%"));
-  })())), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  })())), /*#__PURE__*/React.createElement("div", null, predNext.fixtures.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mb-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-500 mb-1",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "\u041F\u0440\u043E\u0433\u043D\u043E\u0437 \u043D\u0430 GW", predNext.fixtures[0].gw), /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-stone-600 mb-3",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, "\u0421\u043A\u0456\u043B\u044C\u043A\u0438 \u043C\u043E\u0434\u0435\u043B\u044C \u043E\u0447\u0456\u043A\u0443\u0454 \u0432\u0456\u0434 \u0433\u0440\u0430\u0432\u0446\u044F \u0432 \u043D\u0430\u0441\u0442\u0443\u043F\u043D\u043E\u043C\u0443 \u0442\u0443\u0440\u0456"), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 gap-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "p-3 rounded-lg border border-lime-500/30 bg-lime-950/15"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-xl text-lime-400"
+  }, predNext.total.toFixed(1)), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-wider text-stone-600 mt-0.5"
+  }, "\u043E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u043E\u0447\u043A\u0438")), /*#__PURE__*/React.createElement("div", {
+    className: "p-3 rounded-lg border border-stone-800 bg-stone-900/40"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-xl text-stone-200"
+  }, predNext.xG.toFixed(2)), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-wider text-stone-600 mt-0.5"
+  }, "\u043E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u0433\u043E\u043B\u0438")), /*#__PURE__*/React.createElement("div", {
+    className: "p-3 rounded-lg border border-stone-800 bg-stone-900/40"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-xl text-stone-200"
+  }, predNext.xA.toFixed(2)), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-wider text-stone-600 mt-0.5"
+  }, "\u043E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u0430\u0441\u0438\u0441\u0442\u0438")), player.element_type <= 2 ? /*#__PURE__*/React.createElement("div", {
+    className: "p-3 rounded-lg border border-stone-800 bg-stone-900/40"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-xl text-sky-400"
+  }, Math.round(predNext.csProb * 100), "%"), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-wider text-stone-600 mt-0.5"
+  }, "\u0448\u0430\u043D\u0441 \u0441\u0443\u0445\u0430\u0440\u044F")) : /*#__PURE__*/React.createElement("div", {
+    className: "p-3 rounded-lg border border-stone-800 bg-stone-900/40"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-xl text-stone-200"
+  }, Math.round(predNext.expMins)), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-wider text-stone-600 mt-0.5"
+  }, "\u043E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u0445\u0432\u0438\u043B\u0438\u043D\u0438"))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 flex items-center justify-between text-[11px] text-stone-600 flex-wrap gap-2",
+    style: {
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\u0417\u0430 5 \u0442\u0443\u0440\u0456\u0432: ", /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-stone-400"
+  }, pred5.total.toFixed(1)), " \u043E\u0447\u043E\u043A \xB7 ", /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-stone-400"
+  }, pred5.xG.toFixed(2)), " \u0433\u043E\u043B\u0456\u0432 \xB7 ", /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-stone-400"
+  }, pred5.xA.toFixed(2)), " \u0430\u0441\u0438\u0441\u0442\u0456\u0432"), /*#__PURE__*/React.createElement("span", null, "\u0434\u043E\u0432\u0456\u0440\u0430 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u0446\u0456 \u0433\u0440\u0430\u0432\u0446\u044F: ", Math.round(predNext.breakdown.trust * 100), "%"))), /*#__PURE__*/React.createElement("div", {
     className: "text-sm uppercase tracking-wider text-stone-500 mb-2",
     style: {
       fontFamily: 'DM Sans, sans-serif'
