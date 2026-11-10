@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.08.25g';
+const BUILD_VERSION = '2026.11.10';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -479,6 +479,172 @@ async function fetchFromBackend(apiPath) {
   if (!res.ok) throw new Error(`Backend HTTP ${res.status}`);
   return res.json();
 }
+
+// ============================================================
+// ДАНІ МОДЕЛІ: реальна сила команд цього сезону + ризик старту гравців
+// ============================================================
+const MODEL = {
+  ratings: null,
+  recent: null,
+  recentTeamMatches: null
+};
+
+// Рейтинги атаки/захисту команд із фактичного xG цього сезону.
+// att > 1 — створює більше за середнє; def > 1 — ДОЗВОЛЯЄ суперникам більше
+// за середнє (тобто слабкий захист), def < 1 — надійний захист.
+// Мала вибірка стискається до передсезонної оцінки (рейтинг FPL 1-5).
+function computeTeamRatings(teamXg, fixtures, teams) {
+  if (!teamXg || !teamXg.length) return null;
+  const xgBy = {};
+  for (const r of teamXg) xgBy[r.event + ':' + r.team] = r.xg;
+  const cnt = {};
+  const fin = fixtures.filter(f => f.finished && f.event != null && f.team_h_score != null);
+  for (const f of fin) {
+    cnt[f.event + ':' + f.team_h] = (cnt[f.event + ':' + f.team_h] || 0) + 1;
+    cnt[f.event + ':' + f.team_a] = (cnt[f.event + ':' + f.team_a] || 0) + 1;
+  }
+  const acc = {};
+  for (const t of teams) acc[t.id] = {
+    n: 0,
+    xgF: 0,
+    xgA: 0,
+    gf: 0,
+    ga: 0,
+    matches: []
+  };
+  for (const f of fin) {
+    const kh = f.event + ':' + f.team_h,
+      ka = f.event + ':' + f.team_a;
+    if (xgBy[kh] == null || xgBy[ka] == null) continue;
+    const xh = xgBy[kh] / cnt[kh],
+      xa = xgBy[ka] / cnt[ka]; // подвійний тур: ділимо порівну
+    const H = acc[f.team_h],
+      A = acc[f.team_a];
+    if (!H || !A) continue;
+    H.n++;
+    H.xgF += xh;
+    H.xgA += xa;
+    H.gf += f.team_h_score;
+    H.ga += f.team_a_score;
+    A.n++;
+    A.xgF += xa;
+    A.xgA += xh;
+    A.gf += f.team_a_score;
+    A.ga += f.team_h_score;
+    const ko = f.kickoff_time ? Date.parse(f.kickoff_time) : f.event;
+    H.matches.push({
+      event: f.event,
+      ko,
+      opp: f.team_a,
+      isHome: true,
+      xgF: xh,
+      xgA: xa,
+      gf: f.team_h_score,
+      ga: f.team_a_score
+    });
+    A.matches.push({
+      event: f.event,
+      ko,
+      opp: f.team_h,
+      isHome: false,
+      xgF: xa,
+      xgA: xh,
+      gf: f.team_a_score,
+      ga: f.team_h_score
+    });
+  }
+  let totN = 0,
+    totXg = 0;
+  for (const id in acc) {
+    totN += acc[id].n;
+    totXg += acc[id].xgF;
+  }
+  if (totN < 20) return null; // замало матчів — рано довіряти
+  const leagueAvg = totXg / totN;
+  const K = 5; // "вага" передсезонної оцінки в матчах
+  const byTeam = {};
+  for (const t of teams) {
+    const a = acc[t.id];
+    const tier = ((t.strength_overall_home || 3) + (t.strength_overall_away || 3)) / 2;
+    const priorAtt = 1 + (tier - 3) * 0.15,
+      priorDef = 1 - (tier - 3) * 0.12;
+    const rawAtt = a.n ? (0.75 * a.xgF + 0.25 * a.gf) / a.n / leagueAvg : priorAtt;
+    const rawDef = a.n ? (0.75 * a.xgA + 0.25 * a.ga) / a.n / leagueAvg : priorDef;
+    a.matches.sort((x, y) => x.ko - y.ko);
+    const last5 = a.matches.slice(-5);
+    byTeam[t.id] = {
+      n: a.n,
+      att: Math.max(0.5, Math.min(1.8, (rawAtt * a.n + priorAtt * K) / (a.n + K))),
+      def: Math.max(0.5, Math.min(1.8, (rawDef * a.n + priorDef * K) / (a.n + K))),
+      xgFavg: a.n ? a.xgF / a.n : null,
+      xgAavg: a.n ? a.xgA / a.n : null,
+      xgF5: last5.length ? last5.reduce((s, m) => s + m.xgF, 0) / last5.length : null,
+      xgA5: last5.length ? last5.reduce((s, m) => s + m.xgA, 0) / last5.length : null,
+      gfAvg: a.n ? a.gf / a.n : null,
+      gaAvg: a.n ? a.ga / a.n : null,
+      matches: a.matches,
+      last: a.matches[a.matches.length - 1] || null
+    };
+  }
+  return {
+    byTeam,
+    leagueAvg
+  };
+}
+function setModelData(md, teams, fixtures) {
+  MODEL.ratings = null;
+  MODEL.recent = null;
+  MODEL.recentTeamMatches = null;
+  if (!md) return;
+  try {
+    MODEL.ratings = computeTeamRatings(md.teamXg, fixtures, teams);
+    if (md.recent && md.recent.events && md.recent.events.length) {
+      MODEL.recent = md.recent;
+      // скільки матчів зіграла кожна команда в кожному з останніх турів
+      const rtm = {};
+      for (const t of teams) rtm[t.id] = md.recent.events.map(() => 0);
+      const idx = Object.fromEntries(md.recent.events.map((e, i) => [e, i]));
+      for (const f of fixtures) {
+        if (!f.finished || idx[f.event] === undefined) continue;
+        if (rtm[f.team_h]) rtm[f.team_h][idx[f.event]]++;
+        if (rtm[f.team_a]) rtm[f.team_a][idx[f.event]]++;
+      }
+      MODEL.recentTeamMatches = rtm;
+    }
+  } catch (e) {
+    MODEL.ratings = null;
+    MODEL.recent = null;
+  }
+}
+
+// Профіль останніх матчів гравця: як часто виходив у старті і скільки грав.
+// Саме це ловить ротацію, втрату місця в основі чи повернення після травми —
+// сезонні суми цього не показують.
+function recentStartProfile(player, lastN = 4) {
+  const rec = MODEL.recent,
+    rtm = MODEL.recentTeamMatches;
+  if (!rec || !rtm || !rtm[player.team]) return null;
+  const mins = rec.mins[player.id],
+    starts = rec.starts[player.id];
+  const tm = rtm[player.team];
+  let matches = 0,
+    m = 0,
+    s = 0,
+    used = 0;
+  for (let i = rec.events.length - 1; i >= 0 && used < lastN; i--) {
+    if (!tm[i]) continue; // команда не грала в цьому турі
+    used++;
+    matches += tm[i];
+    m += mins ? mins[i] || 0 : 0;
+    s += starts ? starts[i] || 0 : 0;
+  }
+  if (matches < 2) return null;
+  return {
+    matches,
+    startRate: Math.min(1, s / matches),
+    minsAvg: Math.min(90, m / matches)
+  };
+}
 async function loadFPLData(forceRefresh = false) {
   if (!forceRefresh) {
     try {
@@ -486,6 +652,7 @@ async function loadFPLData(forceRefresh = false) {
       if (cached) {
         const parsed = JSON.parse(cached.value);
         if (Date.now() - parsed.ts < CACHE_TTL) {
+          setModelData(parsed.data.modelData, parsed.data.bootstrap.teams, parsed.data.fixtures);
           return {
             ...parsed.data,
             fromCache: true,
@@ -502,9 +669,18 @@ async function loadFPLData(forceRefresh = false) {
     // Бекенд лежить — старий шлях через проксі
     [bootstrap, fixtures] = await Promise.all([fetchWithProxy(`${FPL_API}/bootstrap-static/`), fetchWithProxy(`${FPL_API}/fixtures/`)]);
   }
+
+  // Дані для моделі з нашого сервера (xG команд по турах, хвилини гравців
+  // за останні тури). Якщо сервер їх не віддав — модель працює по-старому.
+  let modelData = null;
+  try {
+    modelData = await fetchFromBackend('/api/model-data');
+  } catch (e) {}
+  setModelData(modelData, bootstrap.teams, fixtures);
   const data = {
     bootstrap,
-    fixtures
+    fixtures,
+    modelData
   };
   try {
     await storage.set('fpl-cache', JSON.stringify({
@@ -671,10 +847,19 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
   const starts = Math.min(player.starts || 0, rounds);
   // Виходи з лавки: оцінка з "зайвих" хвилин (старт ≈ 84 хв, камео ≈ 25 хв)
   const cameos = Math.max(0, Math.min(rounds - starts, Math.round((mins - 84 * starts) / 25)));
-  const p60 = Math.min(1, starts / rounds);
-  const pCameo = Math.min(1 - p60, cameos / rounds);
-  const expMins = Math.min(90, mins / rounds); // очікувані хвилини на матч команди (не більше 90)
+  let p60 = Math.min(1, starts / rounds);
+  let pCameo = Math.min(1 - p60, cameos / rounds);
+  let expMins = Math.min(90, mins / rounds); // очікувані хвилини на матч команди (не більше 90)
 
+  // РИЗИК СТАРТУ: останні 4 матчі команди важать більше за сезонні суми.
+  // Гравець, що сів на лавку 3 тури тому, за сезоном досі виглядає основним.
+  const recentProf = recentStartProfile(player);
+  if (recentProf) {
+    const wR = 0.65;
+    p60 = wR * recentProf.startRate + (1 - wR) * p60;
+    expMins = wR * recentProf.minsAvg + (1 - wR) * expMins;
+    pCameo = Math.min(1 - p60, pCameo);
+  }
   const minutesFactor = w.minutes > 0 ? mins > 1000 ? 1.0 : mins > 500 ? 0.85 : mins > 200 ? 0.7 : 0.5 : 1.0;
 
   // ---- Показники на 90 хвилин з РЕГРЕСІЄЮ ДО СЕРЕДНЬОГО ----
@@ -755,9 +940,17 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
     // Проти найлегшого суперника атака ~1.7x, проти найважчого ~0.6x.
     const fromRating = AVG_STRENGTH / oppDef;
     const fromFDR = Math.pow(1.22, 3 - (f.difficulty ?? 3));
-    const attackRaw = Math.pow(fromRating, 0.5) * Math.pow(fromFDR, 1.2);
+    let attackRaw = Math.pow(fromRating, 0.5) * Math.pow(fromFDR, 1.2);
+    let concedeRaw = Math.pow(oppAtt / AVG_STRENGTH, 0.5) * Math.pow(1 / fromFDR, 0.8);
+    // Якщо є реальні дані сезону — беремо їх замість передсезонних рейтингів:
+    // скільки xG суперник фактично дозволяє і створює. Саме тут "Лідс, що мало
+    // пропускає" перестає бути легким матчем лише через низький рейтинг FPL.
+    const oppR = MODEL.ratings && MODEL.ratings.byTeam[f.opponent];
+    if (oppR && oppR.n >= 3) {
+      attackRaw = Math.pow(oppR.def, 0.9) * (f.isHome ? 1.05 : 0.95);
+      concedeRaw = Math.pow(oppR.att, 0.9) * (f.isHome ? 0.95 : 1.05);
+    }
     const attackAdj = 1 + (attackRaw - 1) * adjScale;
-    const concedeRaw = Math.pow(oppAtt / AVG_STRENGTH, 0.5) * Math.pow(1 / fromFDR, 0.8);
     const concedeAdj = 1 + (concedeRaw - 1) * adjScale;
     const appearancePts = 2 * p60 + 1 * pCameo;
     const attackPts = (xG90 * GOAL_VALUE[player.element_type] + xA90 * 3) * (expMins / 90) * attackAdj;
@@ -800,6 +993,9 @@ function predictPlayerPoints(player, teamsMap, fixtures, fromGW, gwsAhead = 1, w
     xA: sum('xA') * avail,
     csProb: detailedFixtures.length ? sum('csProb') / detailedFixtures.length * avail : 0,
     expMins,
+    startProb: p60 * avail,
+    recentStarts: recentProf,
+    // {matches, startRate, minsAvg} за останні матчі або null
     breakdown: {
       form,
       avail,
@@ -898,7 +1094,13 @@ function teamForecast(teams, fixtures, fromGW) {
     const fromFDR = fdr => Math.pow(FDR_BASE, 3 - fdr);
     const fromAttack = t => 1 + (t - 3) * ATTACK_W;
     const fromOppDefence = t => 1 + (3 - t) * OPP_DEF_W;
+    const R = MODEL.ratings;
     const calc = (att, opp, isHome, myFdr) => {
+      // Реальні дані сезону: атака команди × те, скільки дозволяє суперник
+      if (R && R.byTeam[att.id] && R.byTeam[opp.id]) {
+        const x = R.leagueAvg * R.byTeam[att.id].att * R.byTeam[opp.id].def * (isHome ? 1.08 : 0.93);
+        if (Number.isFinite(x)) return Math.max(0.25, Math.min(4, x));
+      }
       const xGF = LEAGUE_AVG_GOALS * fromFDR(myFdr) * fromAttack(tier(att, isHome)) * fromOppDefence(tier(opp, !isHome)) * (isHome ? HOME_GOAL_MULT : 1 / HOME_GOAL_MULT);
       return Number.isFinite(xGF) ? Math.max(0.25, Math.min(4, xGF)) : LEAGUE_AVG_GOALS;
     };
@@ -3066,10 +3268,10 @@ function PlayerModal({
   }, "\u0448\u0430\u043D\u0441 \u0441\u0443\u0445\u0430\u0440\u044F")) : /*#__PURE__*/React.createElement("div", {
     className: "p-3 rounded-lg border border-stone-800 bg-stone-900/40"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "font-mono text-xl text-stone-200"
-  }, Math.round(predNext.expMins)), /*#__PURE__*/React.createElement("div", {
+    className: `font-mono text-xl ${predNext.startProb < 0.6 ? 'text-amber-400' : 'text-stone-200'}`
+  }, Math.round(predNext.startProb * 100), "%"), /*#__PURE__*/React.createElement("div", {
     className: "text-[10px] uppercase tracking-wider text-stone-600 mt-0.5"
-  }, "\u043E\u0447\u0456\u043A\u0443\u0432\u0430\u043D\u0456 \u0445\u0432\u0438\u043B\u0438\u043D\u0438"))), /*#__PURE__*/React.createElement("div", {
+  }, "\u0448\u0430\u043D\u0441 \u0441\u0442\u0430\u0440\u0442\u0443"))), /*#__PURE__*/React.createElement("div", {
     className: "mt-2 flex items-center justify-between text-[11px] text-stone-600 flex-wrap gap-2",
     style: {
       fontFamily: 'DM Sans, sans-serif'
@@ -3080,7 +3282,7 @@ function PlayerModal({
     className: "font-mono text-stone-400"
   }, pred5.xG.toFixed(2)), " \u0433\u043E\u043B\u0456\u0432 \xB7 ", /*#__PURE__*/React.createElement("span", {
     className: "font-mono text-stone-400"
-  }, pred5.xA.toFixed(2)), " \u0430\u0441\u0438\u0441\u0442\u0456\u0432"), /*#__PURE__*/React.createElement("span", null, "\u0434\u043E\u0432\u0456\u0440\u0430 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u0446\u0456 \u0433\u0440\u0430\u0432\u0446\u044F: ", Math.round(predNext.breakdown.trust * 100), "%"))), /*#__PURE__*/React.createElement("div", {
+  }, pred5.xA.toFixed(2)), " \u0430\u0441\u0438\u0441\u0442\u0456\u0432"), /*#__PURE__*/React.createElement("span", null, predNext.recentStarts ? /*#__PURE__*/React.createElement(React.Fragment, null, "\u0443 \u0441\u0442\u0430\u0440\u0442\u0456 ", Math.round(predNext.recentStarts.startRate * predNext.recentStarts.matches), " \u0437 ", predNext.recentStarts.matches, " \u043E\u0441\u0442\u0430\u043D\u043D\u0456\u0445 \u043C\u0430\u0442\u0447\u0456\u0432 \xB7 ~", Math.round(predNext.expMins), " \u0445\u0432 \xB7 ") : /*#__PURE__*/React.createElement(React.Fragment, null, "\u0448\u0430\u043D\u0441 \u0441\u0442\u0430\u0440\u0442\u0443 ", Math.round(predNext.startProb * 100), "% \xB7 ~", Math.round(predNext.expMins), " \u0445\u0432 \xB7 "), "\u0434\u043E\u0432\u0456\u0440\u0430 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u0446\u0456: ", Math.round(predNext.breakdown.trust * 100), "%"))), /*#__PURE__*/React.createElement("div", {
     className: "text-sm uppercase tracking-wider text-stone-500 mb-2",
     style: {
       fontFamily: 'DM Sans, sans-serif'
@@ -4660,6 +4862,367 @@ function ExpertsView({
 // ============================================================
 // TRENDS VIEW (дані з бекенду: зміни цін і власності за ~24 год)
 // ============================================================
+// ============================================================
+// PRICE FORECAST — прогноз зміни ціни (оцінка самого FPL з bootstrap)
+// ============================================================
+function PriceForecast({
+  players,
+  teams,
+  onPlayerClick
+}) {
+  const teamsMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
+  const {
+    risers,
+    fallers,
+    has
+  } = useMemo(() => {
+    const rows = players.filter(p => Array.isArray(p.price_change_projections) && p.price_change_projections.length && p.status !== 'u').map(p => {
+      const proj = p.price_change_projections.map(x => parseFloat(x.projected_percent) || 0);
+      const now = parseFloat(p.price_change_percent) || 0;
+      const locked = p.price_change_locked_until && Date.parse(p.price_change_locked_until) > Date.now();
+      return {
+        p,
+        now,
+        proj,
+        p0: proj[0] || 0,
+        locked
+      };
+    }).filter(r => !r.locked);
+    return {
+      has: rows.length > 0,
+      risers: rows.filter(r => r.p0 >= 50).sort((a, b) => b.p0 - a.p0).slice(0, 10),
+      fallers: rows.filter(r => r.p0 <= -50).sort((a, b) => a.p0 - b.p0).slice(0, 10)
+    };
+  }, [players]);
+  if (!has) return null;
+  const when = (r, sign) => {
+    const i = r.proj.findIndex(v => sign * v >= 100);
+    if (i === 0) return {
+      text: 'цієї ночі',
+      hot: true
+    };
+    if (i === 1) return {
+      text: 'завтра вночі',
+      hot: false
+    };
+    if (i === 2) return {
+      text: 'за 2 дні',
+      hot: false
+    };
+    return {
+      text: 'наближається',
+      hot: false
+    };
+  };
+  const Row = ({
+    r,
+    sign
+  }) => {
+    const w = when(r, sign);
+    const pct = Math.min(100, Math.abs(r.p0));
+    return /*#__PURE__*/React.createElement("button", {
+      onClick: () => onPlayerClick(r.p),
+      className: "w-full flex items-center gap-3 p-2.5 rounded-lg border border-stone-900 bg-stone-950/40 hover:bg-stone-900/60 hover:border-stone-700 transition-all text-left"
+    }, /*#__PURE__*/React.createElement(StatusDot, {
+      player: r.p
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "min-w-0 flex-1"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-sm font-medium truncate"
+    }, r.p.web_name), /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] text-stone-500"
+    }, teamsMap[r.p.team]?.short_name, " \xB7 \xA3", (r.p.now_cost / 10).toFixed(1), "m \u2192 ", /*#__PURE__*/React.createElement("span", {
+      className: sign > 0 ? 'text-lime-400' : 'text-red-400'
+    }, "\xA3", ((r.p.now_cost + sign) / 10).toFixed(1), "m")), /*#__PURE__*/React.createElement("div", {
+      className: "h-1 rounded-full bg-stone-800 overflow-hidden mt-1.5"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: `h-full rounded-full ${sign > 0 ? 'bg-lime-500/70' : 'bg-red-500/70'}`,
+      style: {
+        width: `${pct}%`
+      }
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "text-right flex-shrink-0"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: `font-mono text-sm ${sign > 0 ? 'text-lime-400' : 'text-red-400'}`
+    }, Math.round(Math.abs(r.p0)), "%"), /*#__PURE__*/React.createElement("div", {
+      className: `text-[10px] ${w.hot ? 'text-amber-400' : 'text-stone-600'}`
+    }, w.text)));
+  };
+  const empty = /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-stone-500 p-3 border border-stone-900 rounded-lg"
+  }, "\u0417\u0430\u0440\u0430\u0437 \u043D\u0456\u0445\u0442\u043E \u043D\u0435 \u0431\u043B\u0438\u0437\u044C\u043A\u043E \u0434\u043E \u0437\u043C\u0456\u043D\u0438 \u0446\u0456\u043D\u0438.");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "mb-8"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-400 mb-1"
+  }, "\u041F\u0440\u043E\u0433\u043D\u043E\u0437 \u0437\u043C\u0456\u043D\u0438 \u0446\u0456\u043D\u0438"), /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-stone-600 mb-3"
+  }, "\u0412\u0456\u0434\u0441\u043E\u0442\u043E\u043A \u2014 \u043D\u0430\u0441\u043A\u0456\u043B\u044C\u043A\u0438 \u0433\u0440\u0430\u0432\u0435\u0446\u044C \u0431\u043B\u0438\u0437\u044C\u043A\u043E \u0434\u043E \u043F\u043E\u0440\u043E\u0433\u0443 \u0437\u043C\u0456\u043D\u0438 \u0446\u0456\u043D\u0438 \u043D\u0430 \xA30.1m (100% = \u0437\u043C\u0456\u043D\u0430 \u043D\u0430\u0439\u0431\u043B\u0438\u0436\u0447\u043E\u0457 \u043D\u043E\u0447\u0456, \u0446\u0456\u043D\u0438 \u043E\u043D\u043E\u0432\u043B\u044E\u044E\u0442\u044C\u0441\u044F ~\u043E 03:30 \u0437\u0430 \u041A\u0438\u0454\u0432\u043E\u043C). \u0426\u0435 \u043E\u0446\u0456\u043D\u043A\u0430, \u044F\u043A\u0443 \u0432\u0456\u0434\u0434\u0430\u0454 \u0441\u0430\u043C FPL, \u0430 \u043D\u0435 \u0433\u0430\u0440\u0430\u043D\u0442\u0456\u044F."), /*#__PURE__*/React.createElement("div", {
+    className: "grid md:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-stone-500 mb-2"
+  }, "\u0421\u043A\u043E\u0440\u043E \u043F\u043E\u0434\u043E\u0440\u043E\u0436\u0447\u0430\u044E\u0442\u044C \u2191"), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, risers.length ? risers.map(r => /*#__PURE__*/React.createElement(Row, {
+    key: r.p.id,
+    r: r,
+    sign: 1
+  })) : empty)), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-stone-500 mb-2"
+  }, "\u0421\u043A\u043E\u0440\u043E \u043F\u043E\u0434\u0435\u0448\u0435\u0432\u0448\u0430\u044E\u0442\u044C \u2193"), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, fallers.length ? fallers.map(r => /*#__PURE__*/React.createElement(Row, {
+    key: r.p.id,
+    r: r,
+    sign: -1
+  })) : empty))));
+}
+
+// ============================================================
+// MATCHES VIEW — розбір туру: xG проти рахунку + прогноз на наступний матч
+// ============================================================
+function MatchesView({
+  teams,
+  fixtures,
+  currentGW,
+  onTeamClick
+}) {
+  const R = MODEL.ratings;
+  const teamsMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
+  const playedGWs = useMemo(() => {
+    if (!R) return [];
+    const s = new Set();
+    Object.values(R.byTeam).forEach(t => t.matches.forEach(m => s.add(m.event)));
+    return [...s].sort((a, b) => a - b);
+  }, [R]);
+  const [gw, setGw] = useState(null);
+  const [sortBy, setSortBy] = useState('next');
+  const nextMap = useMemo(() => {
+    const f = teamForecast(teams, fixtures, currentGW);
+    const m = {};
+    (f.flat || []).forEach(x => {
+      if (!m[x.team.id]) m[x.team.id] = x;
+    });
+    return {
+      gw: f.gw,
+      m
+    };
+  }, [teams, fixtures, currentGW]);
+  if (!R || playedGWs.length === 0) {
+    return /*#__PURE__*/React.createElement(EmptyState, {
+      message: "\u0421\u0435\u0440\u0432\u0435\u0440 \u0449\u0435 \u0437\u0431\u0438\u0440\u0430\u0454 xG \u043F\u043E \u0437\u0456\u0433\u0440\u0430\u043D\u0438\u0445 \u0442\u0443\u0440\u0430\u0445. \u041F\u0456\u0441\u043B\u044F \u043E\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044F \u0431\u0435\u043A\u0435\u043D\u0434\u0443 \u0434\u0430\u043D\u0456 \u0437'\u044F\u0432\u043B\u044F\u0442\u044C\u0441\u044F \u0437\u0430 \u043A\u0456\u043B\u044C\u043A\u0430 \u0445\u0432\u0438\u043B\u0438\u043D \u2014 \u043E\u043D\u043E\u0432\u0438 \u0441\u0442\u043E\u0440\u0456\u043D\u043A\u0443."
+    });
+  }
+  const selGW = gw ?? playedGWs[playedGWs.length - 1];
+  const matches = [];
+  Object.entries(R.byTeam).forEach(([tid, t]) => t.matches.forEach(m => {
+    if (m.event === selGW && m.isHome) matches.push({
+      home: Number(tid),
+      away: m.opp,
+      ...m
+    });
+  }));
+  matches.sort((a, b) => a.ko - b.ko);
+  const fx = v => v == null ? '—' : v.toFixed(2);
+  const luck = (goals, xg) => {
+    const d = goals - xg;
+    if (d >= 0.9) return {
+      t: `забили на ${d.toFixed(1)} більше, ніж створили`,
+      c: 'text-amber-400'
+    };
+    if (d <= -0.9) return {
+      t: `недобрали ${Math.abs(d).toFixed(1)} гола від створеного`,
+      c: 'text-sky-400'
+    };
+    return null;
+  };
+  const TeamLine = ({
+    id,
+    goals,
+    xg
+  }) => {
+    const r = R.byTeam[id],
+      nx = nextMap.m[id],
+      lk = luck(goals, xg);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] text-stone-500 leading-relaxed"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => onTeamClick && onTeamClick(teamsMap[id]),
+      className: "text-stone-300 hover:text-lime-400 font-medium"
+    }, teamsMap[id]?.short_name), ' ', "\xB7 \u0441\u0435\u0437\u043E\u043D: ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-stone-300"
+    }, fx(r.xgFavg)), " xG / ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-stone-300"
+    }, fx(r.xgAavg)), " xGA \u0437\u0430 \u043C\u0430\u0442\u0447", ' ', "\xB7 \u043E\u0441\u0442. 5: ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-stone-300"
+    }, fx(r.xgF5)), " / ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-stone-300"
+    }, fx(r.xgA5)), nx && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 \u0434\u0430\u043B\u0456 ", nx.isHome ? 'вдома з' : 'у гостях у', " ", nx.opp.short_name, ": ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-lime-400"
+    }, nx.xGF.toFixed(2)), " xG"), lk && /*#__PURE__*/React.createElement("div", {
+      className: lk.c
+    }, lk.t));
+  };
+  const table = teams.map(t => ({
+    t,
+    r: R.byTeam[t.id],
+    nx: nextMap.m[t.id]
+  })).filter(x => x.r);
+  const sorters = {
+    next: (a, b) => (b.nx?.xGF ?? -1) - (a.nx?.xGF ?? -1),
+    xg: (a, b) => (b.r.xgFavg ?? 0) - (a.r.xgFavg ?? 0),
+    xga: (a, b) => (a.r.xgAavg ?? 9) - (b.r.xgAavg ?? 9),
+    form: (a, b) => (b.r.xgF5 ?? 0) - (a.r.xgF5 ?? 0)
+  };
+  table.sort(sorters[sortBy]);
+  const SortBtn = ({
+    k,
+    children
+  }) => /*#__PURE__*/React.createElement("button", {
+    onClick: () => setSortBy(k),
+    className: `px-2.5 py-1 rounded-lg text-xs border transition-colors ${sortBy === k ? 'border-lime-500/50 text-lime-400 bg-lime-500/10' : 'border-stone-800 text-stone-400 hover:border-stone-700'}`
+  }, children);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-8"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-stone-400"
+  }, "\u0420\u043E\u0437\u0431\u0456\u0440 \u0442\u0443\u0440\u0443: \u0441\u043A\u0456\u043B\u044C\u043A\u0438 \u043A\u043E\u043C\u0430\u043D\u0434\u0430 ", /*#__PURE__*/React.createElement("strong", {
+    className: "text-stone-300"
+  }, "\u0441\u0442\u0432\u043E\u0440\u0438\u043B\u0430 \u0448\u0430\u043D\u0441\u0456\u0432 (xG)"), " \u043F\u0440\u043E\u0442\u0438 \u0442\u043E\u0433\u043E, \u0441\u043A\u0456\u043B\u044C\u043A\u0438 \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u0437\u0430\u0431\u0438\u043B\u0430. \u042F\u043A\u0449\u043E \u0440\u0430\u0445\u0443\u043D\u043E\u043A \u0441\u0438\u043B\u044C\u043D\u043E \u043A\u0440\u0430\u0449\u0438\u0439 \u0437\u0430 xG \u2014 \u043F\u043E\u0449\u0430\u0441\u0442\u0438\u043B\u043E, \u0456 \u043F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0438 \u0431\u0443\u0434\u0435 \u0432\u0430\u0436\u043A\u043E; \u044F\u043A\u0449\u043E \u0433\u0456\u0440\u0448\u0438\u0439 \u2014 \u0433\u043E\u043B\u0438 \u0449\u0435 \u043F\u0440\u0438\u0439\u0434\u0443\u0442\u044C. xG \u043A\u043E\u043C\u0430\u043D\u0434\u0438 \u2014 \u0441\u0443\u043C\u0430 xG \u0457\u0457 \u0433\u0440\u0430\u0432\u0446\u0456\u0432 \u0437 \u0434\u0430\u043D\u0438\u0445 FPL."), /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-3 mb-3 flex-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-400"
+  }, "\u041C\u0430\u0442\u0447\u0456 GW", selGW), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-1.5 flex-wrap"
+  }, playedGWs.slice(-8).map(g => /*#__PURE__*/React.createElement("button", {
+    key: g,
+    onClick: () => setGw(g),
+    className: `px-2.5 py-1 rounded-lg text-xs font-mono border transition-colors ${g === selGW ? 'border-lime-500/50 text-lime-400 bg-lime-500/10' : 'border-stone-800 text-stone-400 hover:border-stone-700'}`
+  }, g)))), /*#__PURE__*/React.createElement("div", {
+    className: "grid md:grid-cols-2 gap-3"
+  }, matches.map((m, i) => {
+    const tot = Math.max(0.01, m.xgF + m.xgA);
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      className: "rounded-xl border border-stone-800 bg-stone-900/40 p-4"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between gap-2"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => onTeamClick && onTeamClick(teamsMap[m.home]),
+      className: "font-semibold truncate text-left hover:text-lime-400 flex-1"
+    }, teamsMap[m.home]?.name), /*#__PURE__*/React.createElement("div", {
+      className: "font-mono text-xl text-stone-100 flex-shrink-0"
+    }, m.gf, /*#__PURE__*/React.createElement("span", {
+      className: "text-stone-600 mx-1.5"
+    }, ":"), m.ga), /*#__PURE__*/React.createElement("button", {
+      onClick: () => onTeamClick && onTeamClick(teamsMap[m.away]),
+      className: "font-semibold truncate text-right hover:text-lime-400 flex-1"
+    }, teamsMap[m.away]?.name)), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2 mt-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-sm text-lime-400 w-10"
+    }, m.xgF.toFixed(2)), /*#__PURE__*/React.createElement("div", {
+      className: "flex-1 h-1.5 rounded-full bg-sky-500/40 overflow-hidden"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "h-full bg-lime-500/80",
+      style: {
+        width: `${m.xgF / tot * 100}%`
+      }
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-sm text-sky-400 w-10 text-right"
+    }, m.xgA.toFixed(2))), /*#__PURE__*/React.createElement("div", {
+      className: "text-[10px] uppercase tracking-wider text-stone-600 text-center mt-0.5"
+    }, "xG"), /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 pt-2 border-t border-stone-800 space-y-1.5"
+    }, /*#__PURE__*/React.createElement(TeamLine, {
+      id: m.home,
+      goals: m.gf,
+      xg: m.xgF
+    }), /*#__PURE__*/React.createElement(TeamLine, {
+      id: m.away,
+      goals: m.ga,
+      xg: m.xgA
+    })));
+  }))), /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-3 mb-3 flex-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-400"
+  }, "\u0423\u0441\u0456 \u043A\u043E\u043C\u0430\u043D\u0434\u0438", nextMap.gw ? ` · прогноз на GW${nextMap.gw}` : ''), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-1.5 flex-wrap"
+  }, /*#__PURE__*/React.createElement(SortBtn, {
+    k: "next"
+  }, "\u0417\u0430 \u043F\u0440\u043E\u0433\u043D\u043E\u0437\u043E\u043C"), /*#__PURE__*/React.createElement(SortBtn, {
+    k: "xg"
+  }, "\u0417\u0430 \u0430\u0442\u0430\u043A\u043E\u044E"), /*#__PURE__*/React.createElement(SortBtn, {
+    k: "xga"
+  }, "\u0417\u0430 \u0437\u0430\u0445\u0438\u0441\u0442\u043E\u043C"), /*#__PURE__*/React.createElement(SortBtn, {
+    k: "form"
+  }, "\u0417\u0430 \u0444\u043E\u0440\u043C\u043E\u044E (5)"))), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-x-auto rounded-xl border border-stone-800"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", {
+    className: "bg-stone-900/70"
+  }, /*#__PURE__*/React.createElement("tr", {
+    className: "text-[11px] uppercase tracking-wider text-stone-500"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-left font-medium"
+  }, "\u041A\u043E\u043C\u0430\u043D\u0434\u0430"), /*#__PURE__*/React.createElement("th", {
+    className: "px-2 py-2 text-left font-medium"
+  }, "\u041E\u0441\u0442\u0430\u043D\u043D\u0456\u0439 \u043C\u0430\u0442\u0447"), /*#__PURE__*/React.createElement("th", {
+    className: "px-2 py-2 text-right font-medium"
+  }, "xG / xGA"), /*#__PURE__*/React.createElement("th", {
+    className: "px-2 py-2 text-right font-medium"
+  }, "\u0421\u0435\u0437\u043E\u043D xG"), /*#__PURE__*/React.createElement("th", {
+    className: "px-2 py-2 text-right font-medium"
+  }, "\u0421\u0435\u0437\u043E\u043D xGA"), /*#__PURE__*/React.createElement("th", {
+    className: "px-2 py-2 text-right font-medium"
+  }, "\u041E\u0441\u0442. 5 xG"), /*#__PURE__*/React.createElement("th", {
+    className: "px-2 py-2 text-left font-medium"
+  }, "\u0414\u0430\u043B\u0456"), /*#__PURE__*/React.createElement("th", {
+    className: "px-2 py-2 text-right font-medium"
+  }, "\u041F\u0440\u043E\u0433\u043D\u043E\u0437 xG"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-right font-medium"
+  }, "\u0421\u0443\u0445\u0430\u0440"))), /*#__PURE__*/React.createElement("tbody", null, table.map(({
+    t,
+    r,
+    nx
+  }) => /*#__PURE__*/React.createElement("tr", {
+    key: t.id,
+    className: "border-t border-stone-900"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 whitespace-nowrap"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => onTeamClick && onTeamClick(t),
+    className: "text-stone-200 hover:text-lime-400 font-medium"
+  }, t.name)), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 whitespace-nowrap text-stone-400"
+  }, r.last ? /*#__PURE__*/React.createElement(React.Fragment, null, r.last.isHome ? 'д' : 'в', " ", teamsMap[r.last.opp]?.short_name, " ", /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-stone-200"
+  }, r.last.gf, ":", r.last.ga)) : '—'), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 text-right font-mono whitespace-nowrap"
+  }, r.last ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    className: "text-lime-400"
+  }, r.last.xgF.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+    className: "text-stone-600"
+  }, " / "), /*#__PURE__*/React.createElement("span", {
+    className: "text-sky-400"
+  }, r.last.xgA.toFixed(2))) : '—'), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 text-right font-mono text-stone-300"
+  }, fx(r.xgFavg)), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 text-right font-mono text-stone-300"
+  }, fx(r.xgAavg)), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 text-right font-mono text-stone-300"
+  }, fx(r.xgF5)), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 whitespace-nowrap text-stone-400"
+  }, nx ? /*#__PURE__*/React.createElement(React.Fragment, null, nx.isHome ? 'д' : 'в', " ", nx.opp.short_name) : '—'), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 text-right font-mono text-lime-400"
+  }, nx ? nx.xGF.toFixed(2) : '—'), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-right font-mono text-sky-400"
+  }, nx ? `${Math.round(nx.cs * 100)}%` : '—')))))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 text-[11px] text-stone-600"
+  }, "xG \u2014 \u0441\u0442\u0432\u043E\u0440\u0435\u043D\u043E, xGA \u2014 \u0434\u043E\u0437\u0432\u043E\u043B\u0435\u043D\u043E \u0441\u0443\u043F\u0435\u0440\u043D\u0438\u043A\u0443 (\u0441\u0435\u0440\u0435\u0434\u043D\u0454 \u0437\u0430 \u043C\u0430\u0442\u0447). \u041F\u0440\u043E\u0433\u043D\u043E\u0437 = \u0430\u0442\u0430\u043A\u0430 \u043A\u043E\u043C\u0430\u043D\u0434\u0438 \xD7 \u0442\u0435, \u0441\u043A\u0456\u043B\u044C\u043A\u0438 \u0437\u0430\u0437\u0432\u0438\u0447\u0430\u0439 \u0434\u043E\u0437\u0432\u043E\u043B\u044F\u0454 \u0441\u0443\u043F\u0435\u0440\u043D\u0438\u043A, \u0437 \u043F\u043E\u043F\u0440\u0430\u0432\u043A\u043E\u044E \u043D\u0430 \u043F\u043E\u043B\u0435.")));
+}
 function TrendsView({
   players,
   teams,
@@ -5177,6 +5740,10 @@ function App() {
     id: 'teams',
     label: 'Команди',
     icon: 'shield'
+  }, {
+    id: 'matches',
+    label: 'Матчі xG',
+    icon: 'sparkles'
   }];
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen text-stone-100",
@@ -5312,11 +5879,15 @@ function App() {
     players: players,
     teams: teams,
     onPlayerClick: setSelectedPlayer
-  }), view === 'trends' && /*#__PURE__*/React.createElement(TrendsView, {
+  }), view === 'trends' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(PriceForecast, {
     players: players,
     teams: teams,
     onPlayerClick: setSelectedPlayer
-  }), view === 'experts' && /*#__PURE__*/React.createElement(ExpertsView, {
+  }), /*#__PURE__*/React.createElement(TrendsView, {
+    players: players,
+    teams: teams,
+    onPlayerClick: setSelectedPlayer
+  })), view === 'experts' && /*#__PURE__*/React.createElement(ExpertsView, {
     players: players,
     onPlayerClick: setSelectedPlayer
   }), view === 'accuracy' && /*#__PURE__*/React.createElement(AccuracyView, null), view === 'fixtures' && /*#__PURE__*/React.createElement(FixturesView, {
@@ -5325,6 +5896,11 @@ function App() {
     currentGW: currentGW,
     onTeamClick: setSelectedTeam
   }), view === 'teams' && /*#__PURE__*/React.createElement(TeamsView, {
+    teams: teams,
+    fixtures: fixtures,
+    currentGW: currentGW,
+    onTeamClick: setSelectedTeam
+  }), view === 'matches' && /*#__PURE__*/React.createElement(MatchesView, {
     teams: teams,
     fixtures: fixtures,
     currentGW: currentGW,
