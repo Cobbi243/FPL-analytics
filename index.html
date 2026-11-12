@@ -442,6 +442,48 @@ input[type="range"] { height: 6px; }
 /* Картки отримують тінь системи */
 .rounded-xl.border, .rounded-2xl.border { box-shadow: var(--shadow-card); }
 
+/* Каркас: бічне меню зліва, завжди на екрані */
+.fu-shell { display: flex; align-items: flex-start; min-height: 100vh; }
+.fu-shell-main { flex: 1; min-width: 0; }
+.fu-side { width: 236px; flex-shrink: 0; position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-6);
+  padding: var(--space-6) var(--space-3) var(--space-4); background: var(--surface); border-right: 1px solid var(--line); }
+.fu-side .fu-logo { padding: 0 var(--space-2); }
+.fu-side-gw { display: flex; gap: var(--space-4); padding: 0 var(--space-2); }
+.fu-side-gw > div { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.fu-side-nav { display: flex; flex-direction: column; gap: 2px; }
+.fu-side-link { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--ink-muted);
+  font: 600 15px/20px var(--font-sans); text-align: left; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+.fu-side-link:hover { background: var(--surface-raised); color: var(--ink); }
+.fu-side-link[aria-current="page"] { background: var(--brand); color: var(--on-brand); box-shadow: var(--glow-brand); }
+.fu-side-foot { margin-top: auto; display: flex; justify-content: space-between; padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.fu-topbar { display: none; }
+.fu-side-scrim { display: none; }
+@media (max-width: 1023px) {
+  .fu-side { position: fixed; left: 0; top: 0; z-index: 50; width: 264px; transform: translateX(-105%); transition: transform 200ms ease; box-shadow: var(--shadow-pop); }
+  .fu-side.fu-side-open { transform: none; }
+  .fu-side-scrim { display: block; position: fixed; inset: 0; z-index: 45; background: var(--overlay); }
+  .fu-topbar { display: flex; align-items: center; gap: var(--space-2); position: sticky; top: 0; z-index: 30; padding: var(--space-2) var(--space-3); background: var(--surface); border-bottom: 1px solid var(--line); }
+  .fu-topbar-view { flex: 1; min-width: 0; font: 600 14px/20px var(--font-sans); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: var(--space-2); border-left: 1px solid var(--line); margin-left: var(--space-1); }
+  .fu-side .fu-logo-tag { display: block; }
+}
+
+/* Графіки, що розгортаються на весь екран */
+.fu-chart-card { position: relative; }
+.fu-chart-click { cursor: zoom-in; }
+.fu-chart-expand { position: absolute; top: 6px; right: 6px; z-index: 1; }
+.fu-chart-full { position: fixed; inset: 0; z-index: 70; background: var(--bg); }
+.fu-chart-full-inner { position: absolute; inset: 0; display: flex; flex-direction: column; padding: var(--space-4) var(--space-6) var(--space-6); }
+.fu-chart-full-head { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.fu-chart-full-title { font: 700 18px/24px var(--font-display); color: var(--ink); flex: 1; min-width: 0; }
+.fu-chart-full-legend { font-size: 13px; }
+.fu-chart-full-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-4); }
+.fu-chart-full-body > svg { width: 100%; height: 100%; }
+@media (orientation: portrait) and (max-width: 700px) {
+  /* вузький вертикальний екран: кладемо графік на бік, щоб він зайняв довгу сторону */
+  .fu-chart-full-inner { inset: auto; top: 0; left: 0; width: 100vh; width: 100dvh; height: 100vw; transform-origin: top left; transform: rotate(90deg) translateY(-100%); padding: var(--space-3) var(--space-4); }
+  .fu-chart-full-title { font-size: 14px; line-height: 20px; }
+}
+
 /* Доповнення до компонентів системи під цей застосунок */
 .fu-header { box-shadow: var(--shadow-card); }
 .fu-tabs { flex-wrap: wrap; overflow: visible; border-radius: var(--radius-md); } /* вкладки переносяться, без горизонтальної прокрутки */
@@ -497,12 +539,28 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.12c';
+const BUILD_VERSION = '2026.11.13';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
 // ============================================================
 const ICONS = {
+  menu: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M4 6h16"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M4 12h16"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M4 18h16"
+  })),
+  maximize: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M8 3H5a2 2 0 0 0-2 2v3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M21 8V5a2 2 0 0 0-2-2h-3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 16v3a2 2 0 0 0 2 2h3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 21h3a2 2 0 0 0 2-2v-3"
+  })),
   sun: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
     cx: "12",
     cy: "12",
@@ -2010,6 +2068,69 @@ function Stat({
   }, label), /*#__PURE__*/React.createElement("div", {
     className: "fu-stat-value"
   }, value));
+}
+
+// Графік, який можна розгорнути на весь екран (клік по графіку або кнопка).
+// На телефоні у вертикальному положенні розгорнутий графік повертається боком,
+// щоб зайняти довгу сторону екрана.
+function ExpandableChart({
+  title,
+  legend,
+  footer,
+  children
+}) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = e => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "fu-chart-card rounded-xl border border-stone-800 bg-stone-900/30 p-4"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "fu-chart-expand fu-btn fu-btn-ghost fu-btn-icon",
+    onClick: () => setOpen(true),
+    title: "\u041D\u0430 \u0432\u0435\u0441\u044C \u0435\u043A\u0440\u0430\u043D",
+    "aria-label": "\u0420\u043E\u0437\u0433\u043E\u0440\u043D\u0443\u0442\u0438 \u0433\u0440\u0430\u0444\u0456\u043A \u043D\u0430 \u0432\u0435\u0441\u044C \u0435\u043A\u0440\u0430\u043D"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "maximize",
+    size: 16
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "fu-chart-click",
+    onClick: () => setOpen(true)
+  }, children), footer), open && /*#__PURE__*/React.createElement("div", {
+    className: "fu-chart-full",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": title
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "fu-chart-full-inner"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "fu-chart-full-head"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "fu-chart-full-title"
+  }, title), legend && /*#__PURE__*/React.createElement("div", {
+    className: "fu-chart-full-legend"
+  }, legend), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "fu-btn fu-btn-ghost fu-btn-icon",
+    onClick: () => setOpen(false),
+    "aria-label": "\u0417\u0430\u043A\u0440\u0438\u0442\u0438"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 20
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "fu-chart-full-body"
+  }, children))));
 }
 function Section({
   icon,
@@ -4407,7 +4528,7 @@ function MyTeamView({
   if (cur.length >= 2) {
     const W = 700,
       H = 240,
-      padL = 56,
+      padL = 76,
       padR = 70,
       padT = 28,
       padB = 34;
@@ -4456,13 +4577,13 @@ function MyTeamView({
       textAnchor: "end",
       fontFamily: "monospace"
     }, t.label))), /*#__PURE__*/React.createElement("text", {
-      x: 14,
+      x: 10,
       y: H / 2,
       fill: "var(--ink-subtle)",
       fontSize: "10",
       textAnchor: "middle",
       fontFamily: "sans-serif",
-      transform: `rotate(-90 14 ${H / 2})`
+      transform: `rotate(-90 10 ${H / 2})`
     }, "\u2191 \u043A\u0440\u0430\u0449\u0438\u0439 \u0440\u0430\u043D\u0433"), cur.map((h, i) => i % 5 === 0 && /*#__PURE__*/React.createElement("text", {
       key: i,
       x: sx(i),
@@ -4722,6 +4843,21 @@ function MyTeamView({
       }
     }
   }
+  const pointsLegend = /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-4 text-[12px] flex-wrap"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "flex items-center gap-1.5 text-lime-400"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "w-4 h-0.5 bg-lime-400 inline-block rounded"
+  }), "\u0442\u0432\u043E\u0457 \u043E\u0447\u043A\u0438"), /*#__PURE__*/React.createElement("span", {
+    className: "flex items-center gap-1.5 text-amber-400"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "w-4 h-0 border-t-2 border-dashed border-amber-400 inline-block"
+  }), "\u0441\u0435\u0440\u0435\u0434\u043D\u0454 \u043F\u043E \u0433\u0440\u0456"), /*#__PURE__*/React.createElement("span", {
+    className: "flex items-center gap-1.5 text-sky-400"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "w-4 h-0 border-t-2 border-dotted border-sky-400 inline-block"
+  }), "\u0442\u043E\u043F-10k (\u043E\u0446\u0456\u043D\u043A\u0430)"));
 
   // --- Склад останнього туру ---
   const squadPicks = (picks?.picks || []).map(pk => ({
@@ -4795,8 +4931,8 @@ function MyTeamView({
     }
   }, "\u0417\u0430\u0433\u0430\u043B\u044C\u043D\u0438\u0439 \u0440\u0430\u043D\u0433 \u0443\u043F\u0440\u043E\u0434\u043E\u0432\u0436 \u0441\u0435\u0437\u043E\u043D\u0443 ", /*#__PURE__*/React.createElement("span", {
     className: "text-stone-600 normal-case"
-  }, "(\u043B\u0456\u043D\u0456\u044F \u0432\u0433\u043E\u0440\u0443 = \u0440\u0430\u043D\u0433 \u043F\u043E\u043A\u0440\u0430\u0449\u0443\u0454\u0442\u044C\u0441\u044F \xB7 \u043D\u0430\u0432\u0435\u0434\u0438 \u043D\u0430 \u0442\u043E\u0447\u043A\u0443 \u0434\u043B\u044F \u0434\u0435\u0442\u0430\u043B\u0435\u0439 \xB7 \u0436\u043E\u0432\u0442\u0456 \u043A\u0456\u043B\u044C\u0446\u044F \u2014 \u0437\u0456\u0433\u0440\u0430\u043D\u0456 \u0447\u0438\u043F\u0438)")), /*#__PURE__*/React.createElement("div", {
-    className: "rounded-xl border border-stone-800 bg-stone-900/30 p-4"
+  }, "(\u043B\u0456\u043D\u0456\u044F \u0432\u0433\u043E\u0440\u0443 = \u0440\u0430\u043D\u0433 \u043F\u043E\u043A\u0440\u0430\u0449\u0443\u0454\u0442\u044C\u0441\u044F \xB7 \u043D\u0430\u0432\u0435\u0434\u0438 \u043D\u0430 \u0442\u043E\u0447\u043A\u0443 \u0434\u043B\u044F \u0434\u0435\u0442\u0430\u043B\u0435\u0439 \xB7 \u0436\u043E\u0432\u0442\u0456 \u043A\u0456\u043B\u044C\u0446\u044F \u2014 \u0437\u0456\u0433\u0440\u0430\u043D\u0456 \u0447\u0438\u043F\u0438)")), /*#__PURE__*/React.createElement(ExpandableChart, {
+    title: "\u0417\u0430\u0433\u0430\u043B\u044C\u043D\u0438\u0439 \u0440\u0430\u043D\u0433 \u0443\u043F\u0440\u043E\u0434\u043E\u0432\u0436 \u0441\u0435\u0437\u043E\u043D\u0443"
   }, rankChart)), pointsChart && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "flex items-baseline justify-between gap-3 flex-wrap mb-3"
   }, /*#__PURE__*/React.createElement("div", {
@@ -4804,36 +4940,24 @@ function MyTeamView({
     style: {
       fontFamily: 'var(--font-sans)'
     }
-  }, "\u041E\u0447\u043A\u0438 \u0437\u0430 \u0442\u0443\u0440: \u0442\u0438 \u043F\u0440\u043E\u0442\u0438 \u0441\u0435\u0440\u0435\u0434\u043D\u044C\u043E\u0433\u043E \u043F\u043E \u0433\u0440\u0456"), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-4 text-[12px] flex-wrap"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "flex items-center gap-1.5 text-lime-400"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "w-4 h-0.5 bg-lime-400 inline-block rounded"
-  }), "\u0442\u0432\u043E\u0457 \u043E\u0447\u043A\u0438"), /*#__PURE__*/React.createElement("span", {
-    className: "flex items-center gap-1.5 text-amber-400"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "w-4 h-0 border-t-2 border-dashed border-amber-400 inline-block"
-  }), "\u0441\u0435\u0440\u0435\u0434\u043D\u0454 \u043F\u043E \u0433\u0440\u0456"), /*#__PURE__*/React.createElement("span", {
-    className: "flex items-center gap-1.5 text-sky-400"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "w-4 h-0 border-t-2 border-dotted border-sky-400 inline-block"
-  }), "\u0442\u043E\u043F-10k (\u043E\u0446\u0456\u043D\u043A\u0430)"))), /*#__PURE__*/React.createElement("div", {
-    className: "rounded-xl border border-stone-800 bg-stone-900/30 p-4"
-  }, pointsChart, beatenSummary && /*#__PURE__*/React.createElement("div", {
-    className: "mt-2 text-xs text-stone-400 text-center",
-    style: {
-      fontFamily: 'var(--font-sans)'
-    }
-  }, "\u041E\u0431\u0456\u0433\u0440\u0430\u0432 \u0441\u0435\u0440\u0435\u0434\u043D\u0454 \u0443 ", /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-lime-400"
-  }, beatenSummary.beaten), " \u0437 ", /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-stone-200"
-  }, beatenSummary.total), " \u0442\u0443\u0440\u0456\u0432", beatenSummary.totalT10 > 0 && /*#__PURE__*/React.createElement("span", null, " \xB7 \u043E\u0431\u0456\u0433\u0440\u0430\u0432 \u0442\u043E\u043F-10k \u0443 ", /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-sky-400"
-  }, beatenSummary.beatenT10), " \u0437 ", /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-stone-200"
-  }, beatenSummary.totalT10)), ' ', "\xB7 \u0442\u043E\u043F-10k \u2014 \u043D\u0430\u0448\u0430 \u0432\u0438\u0431\u0456\u0440\u043A\u043E\u0432\u0430 \u043E\u0446\u0456\u043D\u043A\u0430 (~150 \u043C\u0435\u043D\u0435\u0434\u0436\u0435\u0440\u0456\u0432 \u0437 \u0444\u0456\u043D\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u0442\u043E\u043F-10k)"))), startingXI.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\u041E\u0447\u043A\u0438 \u0437\u0430 \u0442\u0443\u0440: \u0442\u0438 \u043F\u0440\u043E\u0442\u0438 \u0441\u0435\u0440\u0435\u0434\u043D\u044C\u043E\u0433\u043E \u043F\u043E \u0433\u0440\u0456"), pointsLegend), /*#__PURE__*/React.createElement(ExpandableChart, {
+    title: "\u041E\u0447\u043A\u0438 \u0437\u0430 \u0442\u0443\u0440: \u0442\u0438 \u043F\u0440\u043E\u0442\u0438 \u0441\u0435\u0440\u0435\u0434\u043D\u044C\u043E\u0433\u043E \u043F\u043E \u0433\u0440\u0456",
+    legend: pointsLegend,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, beatenSummary && /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 text-xs text-stone-400 text-center",
+      style: {
+        fontFamily: 'var(--font-sans)'
+      }
+    }, "\u041E\u0431\u0456\u0433\u0440\u0430\u0432 \u0441\u0435\u0440\u0435\u0434\u043D\u0454 \u0443 ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-lime-400"
+    }, beatenSummary.beaten), " \u0437 ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-stone-200"
+    }, beatenSummary.total), " \u0442\u0443\u0440\u0456\u0432", beatenSummary.totalT10 > 0 && /*#__PURE__*/React.createElement("span", null, " \xB7 \u043E\u0431\u0456\u0433\u0440\u0430\u0432 \u0442\u043E\u043F-10k \u0443 ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-sky-400"
+    }, beatenSummary.beatenT10), " \u0437 ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-stone-200"
+    }, beatenSummary.totalT10)), ' ', "\xB7 \u0442\u043E\u043F-10k \u2014 \u043D\u0430\u0448\u0430 \u0432\u0438\u0431\u0456\u0440\u043A\u043E\u0432\u0430 \u043E\u0446\u0456\u043D\u043A\u0430 (~150 \u043C\u0435\u043D\u0435\u0434\u0436\u0435\u0440\u0456\u0432 \u0437 \u0444\u0456\u043D\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u0442\u043E\u043F-10k)"))
+  }, pointsChart)), startingXI.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "rounded-xl border border-blue-500/20 bg-blue-950/10 p-4 text-sm text-blue-200/80",
     style: {
       fontFamily: 'var(--font-sans)'
@@ -6058,6 +6182,15 @@ function App() {
     value: 0.0,
     minutes: 1.0
   });
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Перехід між розділами з будь-якого місця сторінки: закриваємо меню і повертаємось нагору
+  const goTo = id => {
+    setView(id);
+    setMenuOpen(false);
+    try {
+      window.scrollTo(0, 0);
+    } catch {}
+  };
   const [theme, setTheme] = useState(() => document.documentElement.getAttribute('data-theme') || 'dark');
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -6218,15 +6351,13 @@ function App() {
       fontFamily: 'var(--font-sans)'
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "relative"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "max-w-7xl mx-auto px-3 md:px-6 pt-3 md:sticky md:top-0 z-30"
-  }, /*#__PURE__*/React.createElement("header", {
-    className: "fu-header"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "fu-header-top"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "fu-header-left"
+    className: "fu-shell"
+  }, menuOpen && /*#__PURE__*/React.createElement("div", {
+    className: "fu-side-scrim",
+    onClick: () => setMenuOpen(false)
+  }), /*#__PURE__*/React.createElement("aside", {
+    className: `fu-side ${menuOpen ? 'fu-side-open' : ''}`,
+    "aria-label": "\u041C\u0435\u043D\u044E"
   }, /*#__PURE__*/React.createElement("div", {
     className: "fu-logo"
   }, /*#__PURE__*/React.createElement("div", {
@@ -6237,7 +6368,7 @@ function App() {
   }), "UA"), /*#__PURE__*/React.createElement("div", {
     className: "fu-logo-tag"
   }, "Fantasy Premier League \xB7 \u0410\u043D\u0430\u043B\u0456\u0442\u0438\u043A\u0430")), currentEvent && /*#__PURE__*/React.createElement("div", {
-    className: "fu-header-meta"
+    className: "fu-side-gw"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
     className: "fu-stat-label"
   }, "\u0422\u0443\u0440"), /*#__PURE__*/React.createElement("span", {
@@ -6251,8 +6382,20 @@ function App() {
     month: 'short',
     hour: '2-digit',
     minute: '2-digit'
-  }))))), /*#__PURE__*/React.createElement("div", {
-    className: "fu-header-actions"
+  })))), /*#__PURE__*/React.createElement("nav", {
+    className: "fu-side-nav",
+    "aria-label": "\u0420\u043E\u0437\u0434\u0456\u043B\u0438"
+  }, tabs.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    type: "button",
+    "aria-current": view === t.id ? 'page' : undefined,
+    onClick: () => goTo(t.id),
+    className: "fu-side-link"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: t.icon,
+    size: 16
+  }), " ", t.label))), /*#__PURE__*/React.createElement("div", {
+    className: "fu-side-foot"
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: toggleTheme,
@@ -6264,7 +6407,10 @@ function App() {
     size: 18
   })), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    onClick: () => setShowGlossary(true),
+    onClick: () => {
+      setMenuOpen(false);
+      setShowGlossary(true);
+    },
     className: "fu-btn fu-btn-ghost fu-btn-icon",
     title: "\u0421\u043B\u043E\u0432\u043D\u0438\u043A \u0441\u043A\u043E\u0440\u043E\u0447\u0435\u043D\u044C",
     "aria-label": "\u0421\u043B\u043E\u0432\u043D\u0438\u043A \u0441\u043A\u043E\u0440\u043E\u0447\u0435\u043D\u044C"
@@ -6273,7 +6419,10 @@ function App() {
     size: 18
   })), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    onClick: () => setShowSettings(true),
+    onClick: () => {
+      setMenuOpen(false);
+      setShowSettings(true);
+    },
     className: "fu-btn fu-btn-ghost fu-btn-icon",
     title: "\u041D\u0430\u043B\u0430\u0448\u0442\u0443\u0432\u0430\u043D\u043D\u044F",
     "aria-label": "\u041D\u0430\u043B\u0430\u0448\u0442\u0443\u0432\u0430\u043D\u043D\u044F"
@@ -6285,29 +6434,47 @@ function App() {
     onClick: () => load(true),
     disabled: loading,
     className: "fu-btn fu-btn-ghost fu-btn-icon",
-    title: "\u041E\u043D\u043E\u0432\u0438\u0442\u0438",
-    "aria-label": "\u041E\u043D\u043E\u0432\u0438\u0442\u0438"
+    title: "\u041E\u043D\u043E\u0432\u0438\u0442\u0438 \u0434\u0430\u043D\u0456",
+    "aria-label": "\u041E\u043D\u043E\u0432\u0438\u0442\u0438 \u0434\u0430\u043D\u0456"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "refresh",
     size: 18,
     className: loading ? 'animate-spin' : ''
   })))), /*#__PURE__*/React.createElement("div", {
-    className: "fu-header-tabs"
-  }, /*#__PURE__*/React.createElement("nav", {
-    className: "fu-tabs",
-    role: "tablist",
-    "aria-label": "\u0420\u043E\u0437\u0434\u0456\u043B\u0438"
-  }, tabs.map(t => /*#__PURE__*/React.createElement("button", {
-    key: t.id,
+    className: "fu-shell-main"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "fu-topbar"
+  }, /*#__PURE__*/React.createElement("button", {
     type: "button",
-    role: "tab",
-    "aria-selected": view === t.id,
-    onClick: () => setView(t.id),
-    className: "fu-tab"
+    onClick: () => setMenuOpen(true),
+    className: "fu-btn fu-btn-ghost fu-btn-icon",
+    "aria-label": "\u0412\u0456\u0434\u043A\u0440\u0438\u0442\u0438 \u043C\u0435\u043D\u044E"
   }, /*#__PURE__*/React.createElement(Icon, {
-    name: t.icon,
-    size: 14
-  }), " ", t.label)))))), data?.fromCache && /*#__PURE__*/React.createElement("div", {
+    name: "menu",
+    size: 20
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "fu-logo-word",
+    style: {
+      fontSize: 18
+    }
+  }, "FPL", /*#__PURE__*/React.createElement("span", {
+    className: "fu-logo-dot",
+    "aria-hidden": "true"
+  }), "UA"), /*#__PURE__*/React.createElement("div", {
+    className: "fu-topbar-view"
+  }, tabs.find(t => t.id === view)?.label), currentEvent && /*#__PURE__*/React.createElement("span", {
+    className: "fu-gw"
+  }, "GW", currentGW), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => load(true),
+    disabled: loading,
+    className: "fu-btn fu-btn-ghost fu-btn-icon",
+    "aria-label": "\u041E\u043D\u043E\u0432\u0438\u0442\u0438 \u0434\u0430\u043D\u0456"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "refresh",
+    size: 18,
+    className: loading ? 'animate-spin' : ''
+  }))), data?.fromCache && /*#__PURE__*/React.createElement("div", {
     className: "max-w-7xl mx-auto px-4 md:px-6 pt-3"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-[12px] text-stone-600 flex items-center gap-1.5"
@@ -6390,7 +6557,7 @@ function App() {
     className: "flex flex-col md:flex-row justify-between gap-2"
   }, /*#__PURE__*/React.createElement("div", null, "\u0414\u0430\u043D\u0456: \u043E\u0444\u0456\u0446\u0456\u0439\u043D\u0435 FPL API \xB7 \u0411\u0435\u0437 \u0430\u0444\u0456\u043B\u044F\u0446\u0456\u0457 \u0437 \u041F\u0440\u0435\u043C'\u0454\u0440-\u043B\u0456\u0433\u043E\u044E. ", /*#__PURE__*/React.createElement("span", {
     className: "text-stone-700"
-  }, "\xB7 \u0437\u0431\u0456\u0440\u043A\u0430 ", BUILD_VERSION)), /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u043E\u0433\u043D\u043E\u0437\u0438 \u2014 \u043D\u0430\u0448\u0430 \u0435\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430, \u043D\u0435 \u0444\u0456\u043D\u0430\u043D\u0441\u043E\u0432\u0430 \u043F\u043E\u0440\u0430\u0434\u0430 ;)")))), /*#__PURE__*/React.createElement(PlayerModal, {
+  }, "\xB7 \u0437\u0431\u0456\u0440\u043A\u0430 ", BUILD_VERSION)), /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u043E\u0433\u043D\u043E\u0437\u0438 \u2014 \u043D\u0430\u0448\u0430 \u0435\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430, \u043D\u0435 \u0444\u0456\u043D\u0430\u043D\u0441\u043E\u0432\u0430 \u043F\u043E\u0440\u0430\u0434\u0430 ;)"))))), /*#__PURE__*/React.createElement(PlayerModal, {
     player: modalPlayer,
     team: modalPlayer ? teams.find(t => t.id === modalPlayer.team) : null,
     fixtures: fixtures,
