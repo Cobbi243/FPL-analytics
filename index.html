@@ -103,7 +103,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.12';
+const BUILD_VERSION = '2026.11.12b';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -589,6 +589,23 @@ function computeTeamRatings(teamXg, fixtures, teams) {
   return {
     byTeam,
     leagueAvg
+  };
+}
+
+// Очікування від конкретного матчу за реальними рейтингами сезону:
+// скільки xG створить команда, скільки дозволить і шанс сухаря.
+function matchExpectation(teamId, oppId, isHome) {
+  const R = MODEL.ratings;
+  if (!R || !R.byTeam[teamId] || !R.byTeam[oppId]) return null;
+  const t = R.byTeam[teamId],
+    o = R.byTeam[oppId];
+  const clamp = v => Math.max(0.25, Math.min(4, v));
+  const xgF = clamp(R.leagueAvg * t.att * o.def * (isHome ? 1.08 : 0.93));
+  const xgA = clamp(R.leagueAvg * o.att * t.def * (isHome ? 0.93 : 1.08));
+  return {
+    xgF,
+    xgA,
+    cs: Math.exp(-xgA)
   };
 }
 function setModelData(md, teams, fixtures) {
@@ -1561,7 +1578,8 @@ function StatusDot({
 function FDRBadge({
   fdr,
   isHome,
-  oppShort
+  oppShort,
+  value
 }) {
   const c = FDR_COLORS[fdr] || FDR_COLORS[3];
   return /*#__PURE__*/React.createElement("div", {
@@ -1574,7 +1592,7 @@ function FDRBadge({
     className: "font-semibold"
   }, oppShort), /*#__PURE__*/React.createElement("div", {
     className: "opacity-75 text-[9px]"
-  }, isHome ? 'д' : 'в'));
+  }, isHome ? 'д' : 'в', value != null ? ` · ${value}` : ''));
 }
 function Stat({
   label,
@@ -2308,6 +2326,25 @@ function FixturesView({
   const [horizon, setHorizon] = useState(8); // скільки турів показувати
   const [selectedTeams, setSelectedTeams] = useState([]); // порожньо = всі команди
   const toggleTeam = id => setSelectedTeams(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
+  // Що показують кольори: наші рейтинги з реального xG (атака / захист)
+  // або офіційний FDR від FPL. Без даних сервера доступний лише FDR.
+  const hasRatings = !!MODEL.ratings;
+  const [lens, setLens] = useState(hasRatings ? 'attack' : 'fpl');
+  const lensOn = hasRatings ? lens : 'fpl';
+  const LENS_SCALE = {
+    attack: {
+      cuts: [2.0, 1.6, 1.25, 0.95],
+      labels: ['2.0+ xG', '1.6–2.0', '1.25–1.6', '0.95–1.25', 'до 0.95']
+    },
+    defence: {
+      cuts: [0.45, 0.35, 0.26, 0.18],
+      labels: ['45%+', '35–45%', '26–35%', '18–26%', 'до 18%']
+    }
+  };
+  const bucket = (v, cuts) => {
+    for (let i = 0; i < cuts.length; i++) if (v >= cuts[i]) return i + 1;
+    return 5;
+  };
   const {
     gwList,
     mode
@@ -2336,11 +2373,29 @@ function FixturesView({
         const oppScore = isHome ? fix.team_a_score : fix.team_h_score;
         let result = null;
         if (fix.finished && myScore !== null) result = myScore > oppScore ? 'w' : myScore < oppScore ? 'l' : 'd';
+        const fplFdr = isHome ? fix.team_h_difficulty : fix.team_a_difficulty;
+        // Колір і число клітинки залежать від обраної "лінзи"
+        let fdr = fplFdr,
+          metric = fplFdr,
+          label = null;
+        const ex = lensOn !== 'fpl' && opponent ? matchExpectation(team.id, opponent.id, isHome) : null;
+        if (ex && lensOn === 'attack') {
+          metric = ex.xgF;
+          fdr = bucket(ex.xgF, LENS_SCALE.attack.cuts);
+          label = ex.xgF.toFixed(1);
+        }
+        if (ex && lensOn === 'defence') {
+          metric = ex.cs;
+          fdr = bucket(ex.cs, LENS_SCALE.defence.cuts);
+          label = `${Math.round(ex.cs * 100)}%`;
+        }
         return {
           gw,
           isHome,
           opp: opponent,
-          fdr: isHome ? fix.team_h_difficulty : fix.team_a_difficulty,
+          fdr,
+          metric,
+          label,
           finished: fix.finished,
           myScore,
           oppScore,
@@ -2348,14 +2403,15 @@ function FixturesView({
           kickoff: fix.kickoff_time
         };
       });
-      const avgFDR = row.filter(Boolean).reduce((s, f) => s + f.fdr, 0) / Math.max(1, row.filter(Boolean).length);
+      const played = row.filter(Boolean);
+      const avgFDR = played.reduce((s, f) => s + f.metric, 0) / Math.max(1, played.length);
       return {
         team,
         fixtures: row,
         avgFDR
       };
-    }).sort((a, b) => mode === 'upcoming' ? a.avgFDR - b.avgFDR : a.team.name.localeCompare(b.team.name));
-  }, [teams, teamsMap, fixtures, gwList, mode, selectedTeams]);
+    }).sort((a, b) => mode !== 'upcoming' ? a.team.name.localeCompare(b.team.name) : lensOn === 'fpl' ? a.avgFDR - b.avgFDR : b.avgFDR - a.avgFDR);
+  }, [teams, teamsMap, fixtures, gwList, mode, selectedTeams, lensOn]);
   if (gwList.length === 0) {
     return /*#__PURE__*/React.createElement(EmptyState, {
       message: "\u041D\u0435\u043C\u0430\u0454 \u0434\u0430\u043D\u0438\u0445 \u043F\u0440\u043E \u043C\u0430\u0442\u0447\u0456"
@@ -2373,7 +2429,24 @@ function FixturesView({
     style: {
       fontFamily: 'DM Sans, sans-serif'
     }
-  }, mode === 'upcoming' ? /*#__PURE__*/React.createElement(React.Fragment, null, "\u0421\u043A\u043B\u0430\u0434\u043D\u0456\u0441\u0442\u044C \u043D\u0430\u0441\u0442\u0443\u043F\u043D\u0438\u0445 ", gwList.length, " \u0442\u0443\u0440\u0456\u0432 (fixture ticker). \u041A\u043E\u043C\u0430\u043D\u0434\u0438 \u0432\u0456\u0434\u0441\u043E\u0440\u0442\u043E\u0432\u0430\u043D\u043E \u0432\u0456\u0434 \u043D\u0430\u0439\u043B\u0435\u0433\u0448\u043E\u0433\u043E \u043A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044F \u0434\u043E \u043D\u0430\u0439\u0441\u043A\u043B\u0430\u0434\u043D\u0456\u0448\u043E\u0433\u043E \u2014 \u0448\u0443\u043A\u0430\u0439 \u0431\u043B\u043E\u043A\u0438 \u0437\u0435\u043B\u0435\u043D\u0438\u0445 \u043A\u043B\u0456\u0442\u0438\u043D\u043E\u043A \u0434\u043B\u044F \u0433\u0430\u0440\u043D\u0438\u0445 \u0432\u0456\u0434\u0440\u0456\u0437\u043A\u0456\u0432. \u041C\u043E\u0436\u043D\u0430 \u043E\u0431\u0440\u0430\u0442\u0438 \u043A\u0456\u043B\u044C\u043A\u0430 \u043A\u043E\u043C\u0430\u043D\u0434, \u0449\u043E\u0431 \u043F\u043E\u0440\u0456\u0432\u043D\u044F\u0442\u0438 \u0457\u0445\u043D\u0456 \u0432\u0456\u0434\u0440\u0456\u0437\u043A\u0438 \u043F\u043E\u0440\u0443\u0447.") : /*#__PURE__*/React.createElement(React.Fragment, null, "\u0421\u0435\u0437\u043E\u043D \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u043E \u2014 \u043F\u043E\u043A\u0430\u0437\u0443\u044E \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u0438 \u043E\u0441\u0442\u0430\u043D\u043D\u0456\u0445 ", gwList.length, " \u0442\u0443\u0440\u0456\u0432. \u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440 \u043C\u0430\u0439\u0431\u0443\u0442\u043D\u0456\u0445 \u043C\u0430\u0442\u0447\u0456\u0432 \u0437'\u044F\u0432\u0438\u0442\u044C\u0441\u044F \u043D\u0430 \u0441\u0442\u0430\u0440\u0442\u0456 \u043D\u043E\u0432\u043E\u0433\u043E \u0441\u0435\u0437\u043E\u043D\u0443 \u0432 \u0441\u0435\u0440\u043F\u043D\u0456.")), /*#__PURE__*/React.createElement("div", {
+  }, mode === 'upcoming' ? /*#__PURE__*/React.createElement(React.Fragment, null, "\u041D\u0430\u0441\u0442\u0443\u043F\u043D\u0456 ", gwList.length, " \u0442\u0443\u0440\u0456\u0432. ", lensOn === 'attack' && /*#__PURE__*/React.createElement(React.Fragment, null, "\u0427\u0438\u0441\u043B\u043E \u0432 \u043A\u043B\u0456\u0442\u0438\u043D\u0446\u0456 \u2014 ", /*#__PURE__*/React.createElement("strong", {
+    className: "text-stone-300"
+  }, "\u0441\u043A\u0456\u043B\u044C\u043A\u0438 xG \u043A\u043E\u043C\u0430\u043D\u0434\u0430 \u043C\u0430\u0454 \u0441\u0442\u0432\u043E\u0440\u0438\u0442\u0438"), " \u0432 \u0446\u044C\u043E\u043C\u0443 \u043C\u0430\u0442\u0447\u0456: \u0457\u0457 \u0430\u0442\u0430\u043A\u0430 \u0446\u044C\u043E\u0433\u043E \u0441\u0435\u0437\u043E\u043D\u0443 \u043F\u0440\u043E\u0442\u0438 \u0442\u043E\u0433\u043E, \u0441\u043A\u0456\u043B\u044C\u043A\u0438 \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u0434\u043E\u0437\u0432\u043E\u043B\u044F\u0454 \u0441\u0443\u043F\u0435\u0440\u043D\u0438\u043A. \u0414\u043B\u044F \u0432\u0438\u0431\u043E\u0440\u0443 \u043D\u0430\u043F\u0430\u0434\u043D\u0438\u043A\u0456\u0432 \u0456 \u043F\u0456\u0432\u0437\u0430\u0445\u0438\u0441\u043D\u0438\u043A\u0456\u0432."), lensOn === 'defence' && /*#__PURE__*/React.createElement(React.Fragment, null, "\u0427\u0438\u0441\u043B\u043E \u0432 \u043A\u043B\u0456\u0442\u0438\u043D\u0446\u0456 \u2014 ", /*#__PURE__*/React.createElement("strong", {
+    className: "text-stone-300"
+  }, "\u0448\u0430\u043D\u0441 \u0441\u0443\u0445\u0430\u0440\u044F"), ": \u0437\u0430\u0445\u0438\u0441\u0442 \u043A\u043E\u043C\u0430\u043D\u0434\u0438 \u0446\u044C\u043E\u0433\u043E \u0441\u0435\u0437\u043E\u043D\u0443 \u043F\u0440\u043E\u0442\u0438 \u0440\u0435\u0430\u043B\u044C\u043D\u043E\u0457 \u0430\u0442\u0430\u043A\u0438 \u0441\u0443\u043F\u0435\u0440\u043D\u0438\u043A\u0430. \u0414\u043B\u044F \u0432\u0438\u0431\u043E\u0440\u0443 \u0437\u0430\u0445\u0438\u0441\u043D\u0438\u043A\u0456\u0432 \u0456 \u0432\u043E\u0440\u043E\u0442\u0430\u0440\u0456\u0432."), lensOn === 'fpl' && /*#__PURE__*/React.createElement(React.Fragment, null, "\u041A\u043E\u043B\u044C\u043E\u0440\u0438 \u2014 \u043E\u0444\u0456\u0446\u0456\u0439\u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u043D\u0456\u0441\u0442\u044C \u043C\u0430\u0442\u0447\u0443 \u0432\u0456\u0434 FPL (FDR)."), " \u041D\u0430\u0439\u043A\u0440\u0430\u0449\u0438\u0439 \u043A\u0430\u043B\u0435\u043D\u0434\u0430\u0440 \u0443\u0433\u043E\u0440\u0456 \u2014 \u0448\u0443\u043A\u0430\u0439 \u0431\u043B\u043E\u043A\u0438 \u0437\u0435\u043B\u0435\u043D\u0438\u0445 \u043A\u043B\u0456\u0442\u0438\u043D\u043E\u043A. \u041C\u043E\u0436\u043D\u0430 \u043E\u0431\u0440\u0430\u0442\u0438 \u043A\u0456\u043B\u044C\u043A\u0430 \u043A\u043E\u043C\u0430\u043D\u0434, \u0449\u043E\u0431 \u043F\u043E\u0440\u0456\u0432\u043D\u044F\u0442\u0438 \u0457\u0445 \u043F\u043E\u0440\u0443\u0447.") : /*#__PURE__*/React.createElement(React.Fragment, null, "\u0421\u0435\u0437\u043E\u043D \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u043E \u2014 \u043F\u043E\u043A\u0430\u0437\u0443\u044E \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u0438 \u043E\u0441\u0442\u0430\u043D\u043D\u0456\u0445 ", gwList.length, " \u0442\u0443\u0440\u0456\u0432. \u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440 \u043C\u0430\u0439\u0431\u0443\u0442\u043D\u0456\u0445 \u043C\u0430\u0442\u0447\u0456\u0432 \u0437'\u044F\u0432\u0438\u0442\u044C\u0441\u044F \u043D\u0430 \u0441\u0442\u0430\u0440\u0442\u0456 \u043D\u043E\u0432\u043E\u0433\u043E \u0441\u0435\u0437\u043E\u043D\u0443 \u0432 \u0441\u0435\u0440\u043F\u043D\u0456.")), mode === 'upcoming' && /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 flex-wrap"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-stone-500"
+  }, "\u041E\u0446\u0456\u043D\u044E\u0432\u0430\u0442\u0438 \u0437\u0430:"), [['attack', 'Атакою (xG)'], ['defence', 'Захистом (сухарі)'], ['fpl', 'FDR від FPL']].map(([k, l]) => {
+    const off = k !== 'fpl' && !hasRatings;
+    return /*#__PURE__*/React.createElement("button", {
+      key: k,
+      disabled: off,
+      onClick: () => setLens(k),
+      title: off ? 'Немає даних із сервера' : '',
+      className: `px-2.5 py-1 rounded-lg text-xs border transition-colors ${lensOn === k ? 'border-lime-500/50 text-lime-400 bg-lime-500/10' : off ? 'border-stone-900 text-stone-700 cursor-not-allowed' : 'border-stone-800 text-stone-400 hover:border-stone-700'}`
+    }, l);
+  })), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2 flex-wrap"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-xs text-stone-500"
@@ -2403,7 +2476,7 @@ function FixturesView({
     className: "flex items-center gap-3 text-xs flex-wrap"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-stone-500"
-  }, mode === 'upcoming' ? 'Складність:' : 'Колір клітинки — складність суперника. Рамка — результат:'), mode === 'upcoming' ? [1, 2, 3, 4, 5].map(f => /*#__PURE__*/React.createElement("div", {
+  }, mode !== 'upcoming' ? 'Колір клітинки — складність суперника. Рамка — результат:' : lensOn === 'attack' ? 'Очікуваний xG:' : lensOn === 'defence' ? 'Шанс сухаря:' : 'Складність:'), mode === 'upcoming' ? [1, 2, 3, 4, 5].map(f => /*#__PURE__*/React.createElement("div", {
     key: f,
     className: "flex items-center gap-1.5"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2413,7 +2486,7 @@ function FixturesView({
     }
   }), /*#__PURE__*/React.createElement("span", {
     className: "text-stone-400"
-  }, FDR_COLORS[f].label))) : [['w', 'перемога', '#22c55e'], ['d', 'нічия', '#a8a29e'], ['l', 'поразка', '#ef4444']].map(([k, l, c]) => /*#__PURE__*/React.createElement("div", {
+  }, lensOn === 'fpl' ? FDR_COLORS[f].label : LENS_SCALE[lensOn].labels[f - 1]))) : [['w', 'перемога', '#22c55e'], ['d', 'нічия', '#a8a29e'], ['l', 'поразка', '#ef4444']].map(([k, l, c]) => /*#__PURE__*/React.createElement("div", {
     key: k,
     className: "flex items-center gap-1.5"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2453,7 +2526,7 @@ function FixturesView({
     className: "text-stone-200 hover:text-lime-400 transition-colors text-left"
   }, team.name)), mode === 'upcoming' && /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 text-center font-mono text-stone-400 text-sm"
-  }, avgFDR.toFixed(1)), row.map((f, i) => /*#__PURE__*/React.createElement("td", {
+  }, lensOn === 'defence' ? `${Math.round(avgFDR * 100)}%` : lensOn === 'attack' ? avgFDR.toFixed(2) : avgFDR.toFixed(1)), row.map((f, i) => /*#__PURE__*/React.createElement("td", {
     key: i,
     className: "px-1 py-1.5"
   }, !f ? /*#__PURE__*/React.createElement("div", {
@@ -2472,7 +2545,8 @@ function FixturesView({
   }, f.myScore, "-", f.oppScore)) : /*#__PURE__*/React.createElement(FDRBadge, {
     fdr: f.fdr,
     isHome: f.isHome,
-    oppShort: f.opp?.short_name
+    oppShort: f.opp?.short_name,
+    value: f.label
   })))))))));
 }
 
