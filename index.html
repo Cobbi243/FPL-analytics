@@ -564,6 +564,10 @@ td .fu-fdr { display: flex; width: 100%; }
   .fu-pcard-flag { top: 3px; left: 3px; font-size: 8px; line-height: 12px; padding: 0 4px; }
 }
 
+.fu-badge { display: inline-block; vertical-align: -0.22em; margin-right: 6px; object-fit: contain; flex-shrink: 0; }
+.fu-badge--r { margin-right: 0; margin-left: 6px; }
+.fu-pcard-meta .fu-badge, .fu-ranked-meta .fu-badge { margin-right: 4px; }
+
   </style>
 </head>
 <body>
@@ -588,7 +592,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.13d';
+const BUILD_VERSION = '2026.11.13e';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -2233,6 +2237,41 @@ function PlayerPhoto({
     onError: () => setStep(s => s + 1)
   }));
 }
+
+// Емблема клубу — та сама логіка, що й з фото: кілька адрес по черзі; якщо жодна не працює, просто нічого не показуємо
+const BADGE_URLS = [code => `https://resources.premierleague.com/premierleague25/badges-alt/${code}.svg`, code => `https://resources.premierleague.com/premierleague/badges/70/t${code}.png`, code => `https://resources.premierleague.com/premierleague25/badges/${code}.svg`, code => `https://resources.premierleague.com/premierleague26/badges-alt/${code}.svg`];
+let BADGE_GOOD = 0;
+function TeamBadge({
+  team,
+  size = 18,
+  right = false
+}) {
+  const code = team?.code;
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    setStep(0);
+  }, [code]);
+  if (!code || step >= BADGE_URLS.length) return null;
+  const idx = (BADGE_GOOD + step) % BADGE_URLS.length;
+  return /*#__PURE__*/React.createElement("img", {
+    key: idx,
+    className: `fu-badge${right ? ' fu-badge--r' : ''}`,
+    src: BADGE_URLS[idx](code),
+    alt: "",
+    width: size,
+    height: size,
+    loading: "lazy",
+    referrerPolicy: "no-referrer",
+    style: {
+      width: size,
+      height: size
+    },
+    onLoad: () => {
+      BADGE_GOOD = idx;
+    },
+    onError: () => setStep(s => s + 1)
+  });
+}
 function playerStatusInfo(p) {
   const ch = p.chance_of_playing_next_round;
   if (p.status === 'i') return {
@@ -2261,6 +2300,7 @@ function playerStatusInfo(p) {
 }
 function PitchCard({
   player,
+  team,
   teamShort,
   onClick,
   isCaptain,
@@ -2285,7 +2325,10 @@ function PitchCard({
     className: "fu-pcard-name"
   }, player.web_name), /*#__PURE__*/React.createElement("span", {
     className: "fu-pcard-meta"
-  }, teamShort, " \xB7 \xA3", (player.now_cost / 10).toFixed(1)), extra != null && /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: team,
+    size: 14
+  }), teamShort || team?.short_name, " \xB7 \xA3", (player.now_cost / 10).toFixed(1)), extra != null && /*#__PURE__*/React.createElement("span", {
     className: "fu-pcard-extra"
   }, extra));
 }
@@ -2441,6 +2484,9 @@ function RankedRow({
     className: "fu-ranked-meta"
   }, /*#__PURE__*/React.createElement(PositionTag, {
     position: player.element_type
+  }), /*#__PURE__*/React.createElement(TeamBadge, {
+    team: team,
+    size: 14
   }), team?.short_name, " \xB7 ", /*#__PURE__*/React.createElement(PriceTag, {
     cost: player.now_cost
   }))), /*#__PURE__*/React.createElement("span", {
@@ -2534,7 +2580,10 @@ function DashboardView({
       className: "fu-hero-meta"
     }, /*#__PURE__*/React.createElement(PositionTag, {
       position: star.element_type
-    }), " ", star.team?.name, " \xB7 ", /*#__PURE__*/React.createElement(PriceTag, {
+    }), " ", /*#__PURE__*/React.createElement(TeamBadge, {
+      team: star.team,
+      size: 18
+    }), star.team?.name, " \xB7 ", /*#__PURE__*/React.createElement(PriceTag, {
       cost: star.now_cost
     })), /*#__PURE__*/React.createElement("p", {
       className: "fu-hero-desc"
@@ -2700,7 +2749,10 @@ function DashboardView({
     className: "fu-hero-meta"
   }, /*#__PURE__*/React.createElement(PositionTag, {
     position: captainOfWeek.element_type
-  }), " ", captainOfWeek.team?.name, " \xB7 ", /*#__PURE__*/React.createElement(PriceTag, {
+  }), " ", /*#__PURE__*/React.createElement(TeamBadge, {
+    team: captainOfWeek.team,
+    size: 18
+  }), captainOfWeek.team?.name, " \xB7 ", /*#__PURE__*/React.createElement(PriceTag, {
     cost: captainOfWeek.now_cost
   })), /*#__PURE__*/React.createElement("p", {
     className: "fu-hero-desc"
@@ -3068,7 +3120,10 @@ function PlayersView({
     }
   }, p.web_name), /*#__PURE__*/React.createElement("div", {
     className: "text-[11px] text-stone-500"
-  }, p.team?.short_name, " \xB7 ", POSITIONS_UA[p.element_type])))), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: p.team,
+    size: 13
+  }), p.team?.short_name, " \xB7 ", POSITIONS_UA[p.element_type])))), /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 text-right font-mono text-stone-200"
   }, "\xA3", (p.now_cost / 10).toFixed(1)), /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 text-right font-mono text-lime-400"
@@ -3308,7 +3363,10 @@ function FixturesView({
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => onTeamClick && onTeamClick(team),
     className: "text-stone-200 hover:text-lime-400 transition-colors text-left"
-  }, team.name)), mode === 'upcoming' && /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: team,
+    size: 20
+  }), team.name)), mode === 'upcoming' && /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 text-center font-mono text-stone-400 text-sm"
   }, lensOn === 'defence' ? `${Math.round(avgFDR * 100)}%` : lensOn === 'attack' ? avgFDR.toFixed(2) : avgFDR.toFixed(1)), row.map((f, i) => /*#__PURE__*/React.createElement("td", {
     key: i,
@@ -3424,7 +3482,10 @@ function CaptainView({
     }
   }, p.first_name, " ", p.second_name)), /*#__PURE__*/React.createElement("div", {
     className: "text-xs text-stone-400 mt-1"
-  }, p.team?.name, " \xB7 ", POSITIONS_UA[p.element_type], " \xB7 \xA3", (p.now_cost / 10).toFixed(1), "m")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: p.team,
+    size: 14
+  }), p.team?.name, " \xB7 ", POSITIONS_UA[p.element_type], " \xB7 \xA3", (p.now_cost / 10).toFixed(1), "m")), /*#__PURE__*/React.createElement("div", {
     className: "col-span-12 md:col-span-3 flex gap-1.5 flex-wrap"
   }, p.predFixtures.map((f, fi) => /*#__PURE__*/React.createElement(FDRBadge, {
     key: fi,
@@ -3490,7 +3551,7 @@ function OptimizerView({
     isVice
   }) => /*#__PURE__*/React.createElement(PitchCard, {
     player: p,
-    teamShort: teamsMap[p.team]?.short_name,
+    team: teamsMap[p.team],
     onClick: () => onPlayerClick(p),
     isCaptain: isCaptain,
     isVice: isVice,
@@ -3674,12 +3735,15 @@ function TeamModal({
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-start justify-between gap-4"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "text-3xl tracking-tight",
+    className: "text-3xl tracking-tight flex items-center gap-3",
     style: {
       fontFamily: 'var(--font-display)',
       fontWeight: 500
     }
-  }, team.name), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: team,
+    size: 44
+  }), /*#__PURE__*/React.createElement("span", null, team.name)), /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-stone-500 mt-1"
   }, team.short_name, " \xB7 ", squad.length, " \u0433\u0440\u0430\u0432\u0446\u0456\u0432 \u0443 \u0431\u0430\u0437\u0456")), /*#__PURE__*/React.createElement("button", {
     onClick: onClose,
@@ -3901,6 +3965,9 @@ function PlayerModal({
     className: "text-sm text-stone-400 mt-1 flex items-center gap-2"
   }, /*#__PURE__*/React.createElement(StatusDot, {
     player: player
+  }), /*#__PURE__*/React.createElement(TeamBadge, {
+    team: team,
+    size: 18
   }), team?.name, " \xB7 ", POSITIONS_UA[player.element_type], " \xB7 \xA3", (player.now_cost / 10).toFixed(1), "m"))), /*#__PURE__*/React.createElement("button", {
     onClick: onClose,
     className: "p-2 hover:bg-stone-800 rounded-lg transition-colors flex-shrink-0"
@@ -4622,7 +4689,10 @@ function ConsistencyView({
     }
   }, p.web_name), /*#__PURE__*/React.createElement("div", {
     className: "text-[12px] text-stone-500"
-  }, p.team?.short_name, " \xB7 ", POSITIONS_UA[p.element_type], " \xB7 PPG ", p.ppg.toFixed(1), " \xB7 \u0444\u043E\u0440\u043C\u0430 ", p.form.toFixed(1))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: p.team,
+    size: 13
+  }), p.team?.short_name, " \xB7 ", POSITIONS_UA[p.element_type], " \xB7 PPG ", p.ppg.toFixed(1), " \xB7 \u0444\u043E\u0440\u043C\u0430 ", p.form.toFixed(1))), /*#__PURE__*/React.createElement("div", {
     className: "text-right flex-shrink-0"
   }, /*#__PURE__*/React.createElement("div", {
     className: "font-mono text-sm text-lime-400"
@@ -5138,7 +5208,7 @@ function MyTeamView({
     pk
   }) => /*#__PURE__*/React.createElement(PitchCard, {
     player: pk.player,
-    teamShort: teamsMap[pk.player.team]?.short_name,
+    team: teamsMap[pk.player.team],
     onClick: () => onPlayerClick(pk.player),
     isCaptain: pk.is_captain,
     isVice: pk.is_vice_captain
@@ -5517,7 +5587,10 @@ function TeamsView({
     style: {
       fontFamily: 'var(--font-sans)'
     }
-  }, side.team.name)), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: side.team,
+    size: 20
+  }), side.team.name)), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-4 flex-shrink-0 text-sm"
   }, /*#__PURE__*/React.createElement("span", {
     className: "font-mono text-lime-400",
@@ -5555,7 +5628,10 @@ function TeamsView({
     style: {
       fontFamily: 'var(--font-sans)'
     }
-  }, t.team.name), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: t.team,
+    size: 20
+  }), t.team.name), /*#__PURE__*/React.createElement("div", {
     className: "text-[12px] text-stone-500"
   }, t.isHome ? 'вдома проти' : 'у гостях проти', " ", t.opp.short_name, " \xB7 ", /*#__PURE__*/React.createElement(FDRInline, {
     fdr: t.fdr
@@ -5763,7 +5839,10 @@ function PriceForecast({
       className: "text-sm font-medium truncate"
     }, r.p.web_name), /*#__PURE__*/React.createElement("div", {
       className: "text-[12px] text-stone-500"
-    }, teamsMap[r.p.team]?.short_name, " \xB7 \xA3", (r.p.now_cost / 10).toFixed(1), "m \u2192 ", /*#__PURE__*/React.createElement("span", {
+    }, /*#__PURE__*/React.createElement(TeamBadge, {
+      team: teamsMap[r.p.team],
+      size: 13
+    }), teamsMap[r.p.team]?.short_name, " \xB7 \xA3", (r.p.now_cost / 10).toFixed(1), "m \u2192 ", /*#__PURE__*/React.createElement("span", {
       className: sign > 0 ? 'text-lime-400' : 'text-red-400'
     }, "\xA3", ((r.p.now_cost + sign) / 10).toFixed(1), "m")), /*#__PURE__*/React.createElement("div", {
       className: "h-1 rounded-full bg-stone-800 overflow-hidden mt-1.5"
@@ -5881,7 +5960,10 @@ function MatchesView({
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => onTeamClick && onTeamClick(teamsMap[id]),
       className: "text-stone-300 hover:text-lime-400 font-medium"
-    }, teamsMap[id]?.short_name), ' ', "\xB7 \u0441\u0435\u0437\u043E\u043D: ", /*#__PURE__*/React.createElement("span", {
+    }, /*#__PURE__*/React.createElement(TeamBadge, {
+      team: teamsMap[id],
+      size: 18
+    }), teamsMap[id]?.short_name), ' ', "\xB7 \u0441\u0435\u0437\u043E\u043D: ", /*#__PURE__*/React.createElement("span", {
       className: "font-mono text-stone-300"
     }, fx(r.xgFavg)), " xG / ", /*#__PURE__*/React.createElement("span", {
       className: "font-mono text-stone-300"
@@ -5942,14 +6024,21 @@ function MatchesView({
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => onTeamClick && onTeamClick(teamsMap[m.home]),
       className: "font-semibold truncate text-left hover:text-lime-400 flex-1"
-    }, teamsMap[m.home]?.name), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement(TeamBadge, {
+      team: teamsMap[m.home],
+      size: 22
+    }), teamsMap[m.home]?.name), /*#__PURE__*/React.createElement("div", {
       className: "font-mono text-xl text-stone-100 flex-shrink-0"
     }, m.gf, /*#__PURE__*/React.createElement("span", {
       className: "text-stone-600 mx-1.5"
     }, ":"), m.ga), /*#__PURE__*/React.createElement("button", {
       onClick: () => onTeamClick && onTeamClick(teamsMap[m.away]),
       className: "font-semibold truncate text-right hover:text-lime-400 flex-1"
-    }, teamsMap[m.away]?.name)), /*#__PURE__*/React.createElement("div", {
+    }, teamsMap[m.away]?.name, /*#__PURE__*/React.createElement(TeamBadge, {
+      team: teamsMap[m.away],
+      size: 22,
+      right: true
+    }))), /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-2 mt-2"
     }, /*#__PURE__*/React.createElement("span", {
       className: "font-mono text-sm text-lime-400 w-10"
@@ -6027,7 +6116,10 @@ function MatchesView({
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => onTeamClick && onTeamClick(t),
     className: "text-stone-200 hover:text-lime-400 font-medium"
-  }, t.name)), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(TeamBadge, {
+    team: t,
+    size: 20
+  }), t.name)), /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 whitespace-nowrap text-stone-400"
   }, r.last ? /*#__PURE__*/React.createElement(React.Fragment, null, r.last.isHome ? 'д' : 'в', " ", teamsMap[r.last.opp]?.short_name, " ", /*#__PURE__*/React.createElement("span", {
     className: "font-mono text-stone-200"
