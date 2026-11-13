@@ -594,7 +594,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.13f';
+const BUILD_VERSION = '2026.11.13g';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -1989,17 +1989,22 @@ function optimizeSquad(players, teamsMap, fixtures, fromGW, options = {}) {
 
   // 1) Оцінка кожного гравця на горизонт
   const scored = players.filter(p => p.status !== 'u').map(p => {
-    let score;
+    // predScore — рейтинг для ВИБОРУ (xP зі штрафами за ризик хвилин, травми, провали календаря);
+    // predXP — чистий прогноз очок, той самий, що у вкладці «Гравці». Показуємо саме його.
+    let score, xp;
     if (seasonEnded) {
-      score = (p.total_points || 0) + (parseFloat(p.form) || 0) * 5;
+      score = xp = (p.total_points || 0) + (parseFloat(p.form) || 0) * 5;
     } else {
-      // надійність на дистанції: ризик старту, травми, провали календаря
-      score = squadScore(p, teamsMap, fixtures, fromGW, horizon, weights).score;
+      const s = squadScore(p, teamsMap, fixtures, fromGW, horizon, weights);
+      score = s.score;
+      xp = s.pred;
     }
     if (!Number.isFinite(score) || score < 0) score = 0;
+    if (!Number.isFinite(xp) || xp < 0) xp = 0;
     return {
       ...p,
-      predScore: score
+      predScore: score,
+      predXP: xp
     };
   });
 
@@ -2158,7 +2163,7 @@ function optimizeSquad(players, teamsMap, fixtures, fromGW, options = {}) {
     vice,
     totalCost,
     valid: complete,
-    predictedTotal: res ? res.xiScore : 0,
+    predictedTotal: res ? res.xi.reduce((s, p) => s + p.predXP, 0) : 0,
     horizon
   };
 }
@@ -3557,7 +3562,7 @@ function OptimizerView({
     onClick: () => onPlayerClick(p),
     isCaptain: isCaptain,
     isVice: isVice,
-    extra: /*#__PURE__*/React.createElement(React.Fragment, null, p.predScore.toFixed(1), " ", /*#__PURE__*/React.createElement("small", null, seasonEnded ? 'оч.' : 'xP'))
+    extra: /*#__PURE__*/React.createElement(React.Fragment, null, (p.predXP ?? p.predScore).toFixed(1), " ", /*#__PURE__*/React.createElement("small", null, seasonEnded ? 'оч.' : 'xP'))
   });
   return /*#__PURE__*/React.createElement("div", {
     className: "space-y-6"
@@ -3566,7 +3571,7 @@ function OptimizerView({
     style: {
       fontFamily: 'var(--font-sans)'
     }
-  }, seasonEnded ? '🏆 Сезон завершено — підбираю «команду сезону» на основі підсумкових очок і форми. Корисно щоб подивитись, як виглядає ідеальний ретроспективний склад.' : 'Підбирає 15 гравців під бюджет і ліміт на клуб так, щоб стартова одинадцятка набрала максимум очікуваних очок за обраний горизонт. Враховує ризик старту, травми, реальну силу суперників цього сезону і провали в календарі. Число біля гравця — очікувані очки за весь горизонт, а не за один тур.'), /*#__PURE__*/React.createElement("div", {
+  }, seasonEnded ? '🏆 Сезон завершено — підбираю «команду сезону» на основі підсумкових очок і форми. Корисно щоб подивитись, як виглядає ідеальний ретроспективний склад.' : 'Підбирає 15 гравців під бюджет і ліміт на клуб так, щоб стартова одинадцятка набрала максимум очікуваних очок за обраний горизонт. Враховує ризик старту, травми, реальну силу суперників цього сезону і провали в календарі. Число біля гравця — очікувані очки за весь горизонт (те саме xP, що у вкладці «Гравці»). Обирає оптимізатор суворіше: гравців із ризиком ротації, травмою чи важким відрізком календаря він штрафує, тому в склад може потрапити не той, у кого xP найбільший.'), /*#__PURE__*/React.createElement("div", {
     className: "grid md:grid-cols-3 gap-4 p-4 rounded-xl border border-stone-800 bg-stone-900/40"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "text-xs uppercase tracking-wider text-stone-500 block mb-2"
