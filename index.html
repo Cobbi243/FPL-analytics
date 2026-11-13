@@ -588,7 +588,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.13c';
+const BUILD_VERSION = '2026.11.13d';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -2427,6 +2427,9 @@ function RankedRow({
     className: "fu-ranked-rank"
   }, rank), /*#__PURE__*/React.createElement(StatusDot, {
     player: player
+  }), /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: player,
+    size: 36
   }), /*#__PURE__*/React.createElement("span", {
     className: "fu-ranked-main"
   }, /*#__PURE__*/React.createElement("span", {
@@ -2518,8 +2521,16 @@ function DashboardView({
       name: "star",
       size: 14
     }), " \u0413\u0440\u0430\u0432\u0435\u0446\u044C \u0441\u0435\u0437\u043E\u043D\u0443"), /*#__PURE__*/React.createElement("div", {
-      className: "fu-hero-name"
-    }, star.first_name, " ", star.second_name), /*#__PURE__*/React.createElement("div", {
+      className: "fu-hero-name",
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12
+      }
+    }, /*#__PURE__*/React.createElement(PlayerPhoto, {
+      player: star,
+      size: 52
+    }), /*#__PURE__*/React.createElement("span", null, star.first_name, " ", star.second_name)), /*#__PURE__*/React.createElement("div", {
       className: "fu-hero-meta"
     }, /*#__PURE__*/React.createElement(PositionTag, {
       position: star.element_type
@@ -2676,8 +2687,16 @@ function DashboardView({
     name: "crown",
     size: 14
   }), " \u041A\u0430\u043F\u0456\u0442\u0430\u043D \u0442\u0438\u0436\u043D\u044F \xB7 GW", currentGW), /*#__PURE__*/React.createElement("div", {
-    className: "fu-hero-name"
-  }, captainOfWeek.first_name, " ", captainOfWeek.second_name), /*#__PURE__*/React.createElement("div", {
+    className: "fu-hero-name",
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: captainOfWeek,
+    size: 52
+  }), /*#__PURE__*/React.createElement("span", null, captainOfWeek.first_name, " ", captainOfWeek.second_name)), /*#__PURE__*/React.createElement("div", {
     className: "fu-hero-meta"
   }, /*#__PURE__*/React.createElement(PositionTag, {
     position: captainOfWeek.element_type
@@ -3039,6 +3058,9 @@ function PlayersView({
     className: "flex items-center gap-2"
   }, /*#__PURE__*/React.createElement(StatusDot, {
     player: p
+  }), /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: p,
+    size: 32
   }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "font-medium",
     style: {
@@ -3392,6 +3414,9 @@ function CaptainView({
     className: "flex items-center gap-2"
   }, /*#__PURE__*/React.createElement(StatusDot, {
     player: p
+  }), /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: p,
+    size: 32
   }), /*#__PURE__*/React.createElement("div", {
     className: "font-semibold",
     style: {
@@ -3613,6 +3638,9 @@ function TeamModal({
     className: "w-full flex items-center gap-3 p-2.5 rounded-lg border border-stone-900 bg-stone-950/40 hover:bg-stone-900/60 hover:border-stone-700 transition-all text-left"
   }, /*#__PURE__*/React.createElement(StatusDot, {
     player: p
+  }), /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: p,
+    size: 32
   }), /*#__PURE__*/React.createElement("div", {
     className: "min-w-0 flex-1"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3696,6 +3724,9 @@ function TeamModal({
     className: "w-full flex items-start gap-2 text-left hover:opacity-80"
   }, /*#__PURE__*/React.createElement(StatusDot, {
     player: p
+  }), /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: p,
+    size: 32
   }), /*#__PURE__*/React.createElement("div", {
     className: "min-w-0"
   }, /*#__PURE__*/React.createElement("span", {
@@ -3853,7 +3884,14 @@ function PlayerModal({
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("div", {
     className: "sticky top-0 bg-stone-950/95 backdrop-blur border-b border-stone-800 p-5 flex items-start justify-between"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-4 min-w-0"
+  }, /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: player,
+    size: 72
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "min-w-0"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "text-3xl tracking-tight",
     style: {
       fontFamily: 'var(--font-display)',
@@ -3863,9 +3901,9 @@ function PlayerModal({
     className: "text-sm text-stone-400 mt-1 flex items-center gap-2"
   }, /*#__PURE__*/React.createElement(StatusDot, {
     player: player
-  }), team?.name, " \xB7 ", POSITIONS_UA[player.element_type], " \xB7 \xA3", (player.now_cost / 10).toFixed(1), "m")), /*#__PURE__*/React.createElement("button", {
+  }), team?.name, " \xB7 ", POSITIONS_UA[player.element_type], " \xB7 \xA3", (player.now_cost / 10).toFixed(1), "m"))), /*#__PURE__*/React.createElement("button", {
     onClick: onClose,
-    className: "p-2 hover:bg-stone-800 rounded-lg transition-colors"
+    className: "p-2 hover:bg-stone-800 rounded-lg transition-colors flex-shrink-0"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "x",
     size: 18
@@ -4572,6 +4610,9 @@ function ConsistencyView({
     className: "font-mono text-stone-600 w-6 text-sm"
   }, i + 1), /*#__PURE__*/React.createElement(StatusDot, {
     player: p
+  }), /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: p,
+    size: 32
   }), /*#__PURE__*/React.createElement("div", {
     className: "min-w-0 flex-1"
   }, /*#__PURE__*/React.createElement("div", {
@@ -5218,7 +5259,10 @@ function MyTeamView({
     style: {
       fontFamily: 'var(--font-sans)'
     }
-  }, /*#__PURE__*/React.createElement(Icon, {
+  }, /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: advice.captain.p,
+    size: 36
+  }), /*#__PURE__*/React.createElement(Icon, {
     name: "crown",
     size: 16,
     className: "text-lime-400"
@@ -5262,6 +5306,9 @@ function MyTeamView({
     className: "flex items-center gap-2 text-left hover:opacity-80"
   }, /*#__PURE__*/React.createElement(StatusDot, {
     player: sell.p
+  }), /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: sell.p,
+    size: 32
   }), /*#__PURE__*/React.createElement("span", {
     className: "font-semibold",
     style: {
@@ -5281,8 +5328,11 @@ function MyTeamView({
   }) => /*#__PURE__*/React.createElement("button", {
     key: c.id,
     onClick: () => onPlayerClick(c),
-    className: "px-2.5 py-1.5 rounded-lg border border-stone-800 bg-stone-950/60 hover:border-lime-500/40 text-left transition-colors"
-  }, /*#__PURE__*/React.createElement("span", {
+    className: "px-2.5 py-1.5 rounded-lg border border-stone-800 bg-stone-950/60 hover:border-lime-500/40 text-left transition-colors inline-flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement(PlayerPhoto, {
+    player: c,
+    size: 26
+  }), /*#__PURE__*/React.createElement("span", {
     className: "text-sm font-medium",
     style: {
       fontFamily: 'var(--font-sans)'
@@ -5704,6 +5754,9 @@ function PriceForecast({
       className: "w-full flex items-center gap-3 p-2.5 rounded-lg border border-stone-900 bg-stone-950/40 hover:bg-stone-900/60 hover:border-stone-700 transition-all text-left"
     }, /*#__PURE__*/React.createElement(StatusDot, {
       player: r.p
+    }), /*#__PURE__*/React.createElement(PlayerPhoto, {
+      player: r.p,
+      size: 32
     }), /*#__PURE__*/React.createElement("div", {
       className: "min-w-0 flex-1"
     }, /*#__PURE__*/React.createElement("div", {
@@ -6051,7 +6104,10 @@ function TrendsView({
     return /*#__PURE__*/React.createElement("button", {
       onClick: () => p && onPlayerClick(p),
       className: "w-full flex items-center gap-3 p-2.5 rounded-lg border border-stone-900 bg-stone-950/40 hover:bg-stone-900/60 hover:border-stone-700 transition-all text-left"
-    }, /*#__PURE__*/React.createElement("div", {
+    }, p && /*#__PURE__*/React.createElement(PlayerPhoto, {
+      player: p,
+      size: 32
+    }), /*#__PURE__*/React.createElement("div", {
       className: "min-w-0 flex-1"
     }, /*#__PURE__*/React.createElement("div", {
       className: "text-sm font-medium truncate",
