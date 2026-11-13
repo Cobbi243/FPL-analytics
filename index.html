@@ -566,6 +566,8 @@ td .fu-fdr { display: flex; width: 100%; }
 
 .fu-badge { display: inline-block; vertical-align: -0.22em; margin-right: 6px; object-fit: contain; flex-shrink: 0; }
 .fu-badge--r { margin-right: 0; margin-left: 6px; }
+/* світла тема: білі емблеми (Тоттенгем, Фулгем…) зливаються з фоном — даємо тонкий темний контур по формі емблеми */
+[data-theme="light"] .fu-badge { filter: drop-shadow(0 0 0.6px rgba(16,21,28,.9)) drop-shadow(0 0 0.6px rgba(16,21,28,.9)) drop-shadow(0 1px 1.5px rgba(16,21,28,.25)); }
 .fu-pcard-meta .fu-badge, .fu-ranked-meta .fu-badge { margin-right: 4px; }
 
   </style>
@@ -592,7 +594,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.13e';
+const BUILD_VERSION = '2026.11.13f';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
