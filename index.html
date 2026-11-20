@@ -564,6 +564,15 @@ td .fu-fdr { display: flex; width: 100%; }
   .fu-pcard-flag { top: 3px; left: 3px; font-size: 8px; line-height: 12px; padding: 0 4px; }
 }
 
+.fu-pcard-opps { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; margin-top: auto; padding-top: 6px; }
+.fu-pcard-opp { display: inline-flex; align-items: baseline; gap: 3px; padding: 1px 6px; border-radius: var(--radius-xs);
+  font: 700 11px/16px var(--font-mono); background: var(--fdr-3); color: var(--on-fdr-dark); }
+.fu-pcard-opp small { font-weight: 500; font-size: 9px; opacity: .75; }
+.fu-pcard-opp.fu-fdr-1 { background: var(--fdr-1); } .fu-pcard-opp.fu-fdr-2 { background: var(--fdr-2); }
+.fu-pcard-opp.fu-fdr-4 { background: var(--fdr-4); }
+.fu-pcard-opp.fu-fdr-5 { background: var(--fdr-5); color: var(--on-fdr-light); }
+.fu-pcard-opp--none { background: var(--surface-raised); color: var(--ink-subtle); font-family: var(--font-sans); font-weight: 600; }
+@media (max-width: 640px) { .fu-pcard-opp { font-size: 9px; line-height: 13px; padding: 0 3px; } .fu-pcard-opp small { font-size: 8px; } }
 .fu-badge { display: inline-block; vertical-align: -0.22em; margin-right: 6px; object-fit: contain; flex-shrink: 0; }
 .fu-badge--r { margin-right: 0; margin-left: 6px; }
 /* світла тема: білі емблеми (Тоттенгем, Фулгем…) зливаються з фоном — даємо тонкий темний контур по формі емблеми */
@@ -594,7 +603,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.20b';
+const BUILD_VERSION = '2026.11.20c';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -2305,6 +2314,19 @@ function playerStatusInfo(p) {
     label: null
   };
 }
+
+// Суперники команди в турі gw: [{ short, isHome, fdr }]. Подвійний тур — два записи, порожній — пустий масив.
+function teamOpponents(teamId, gw, fixtures, teamsMap) {
+  if (!fixtures || gw == null) return [];
+  return fixtures.filter(f => f.event === gw && (f.team_h === teamId || f.team_a === teamId)).map(f => {
+    const isHome = f.team_h === teamId;
+    return {
+      short: teamsMap[isHome ? f.team_a : f.team_h]?.short_name || '?',
+      isHome,
+      fdr: (isHome ? f.team_h_difficulty : f.team_a_difficulty) ?? 3
+    };
+  });
+}
 function PitchCard({
   player,
   team,
@@ -2312,7 +2334,8 @@ function PitchCard({
   onClick,
   isCaptain,
   isVice,
-  extra
+  extra,
+  opps
 }) {
   const st = playerStatusInfo(player);
   const title = st.key === 'ok' ? 'Доступний' : player.news || st.label;
@@ -2337,7 +2360,15 @@ function PitchCard({
     size: 14
   }), teamShort || team?.short_name, " \xB7 \xA3", (player.now_cost / 10).toFixed(1)), extra != null && /*#__PURE__*/React.createElement("span", {
     className: "fu-pcard-extra"
-  }, extra));
+  }, extra), opps && /*#__PURE__*/React.createElement("span", {
+    className: "fu-pcard-opps"
+  }, opps.length === 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "fu-pcard-opp fu-pcard-opp--none"
+  }, "\u043D\u0435 \u0433\u0440\u0430\u0454") : opps.map((o, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: `fu-pcard-opp fu-fdr-${o.fdr >= 1 && o.fdr <= 5 ? o.fdr : 3}`,
+    title: `${o.isHome ? 'вдома' : 'у гостях'} · складність ${o.fdr}`
+  }, o.short, " ", /*#__PURE__*/React.createElement("small", null, o.isHome ? 'д' : 'в')))));
 }
 function Pitch({
   rows,
@@ -3563,6 +3594,7 @@ function OptimizerView({
     player: p,
     team: teamsMap[p.team],
     onClick: () => onPlayerClick(p),
+    opps: seasonEnded ? null : teamOpponents(p.team, currentGW, fixtures, teamsMap),
     isCaptain: isCaptain,
     isVice: isVice,
     extra: /*#__PURE__*/React.createElement(React.Fragment, null, (p.predXP ?? p.predScore).toFixed(1), " ", /*#__PURE__*/React.createElement("small", null, seasonEnded ? 'оч.' : 'xP'))
@@ -5372,6 +5404,7 @@ function MyTeamView({
     player: pk.player,
     team: teamsMap[pk.player.team],
     onClick: () => onPlayerClick(pk.player),
+    opps: teamOpponents(pk.player.team, currentGW, fixtures, teamsMap),
     isCaptain: pk.is_captain,
     isVice: pk.is_vice_captain
   });
