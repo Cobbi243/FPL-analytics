@@ -594,7 +594,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.20';
+const BUILD_VERSION = '2026.11.20b';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -2721,7 +2721,8 @@ function DashboardView({
   }
 
   // === LIVE SEASON VIEW ===
-  const captainPicks = [...enrichedLive].sort((a, b) => b.predNext - a.predNext).slice(0, 5);
+  // той самий рейтинг, що у вкладці «Капітан»
+  const captainPicks = rankCaptainCandidates(players, teamsMap, fixtures, currentGW, weights, 5);
   const onFire = [...enrichedLive].sort((a, b) => {
     const fa = parseFloat(a.form) || 0,
       fb = parseFloat(b.form) || 0;
@@ -3402,6 +3403,26 @@ function FixturesView({
 // ============================================================
 // CAPTAIN VIEW
 // ============================================================
+// Спільний рейтинг капітанів — і для «Дашборду», і для вкладки «Капітан», щоб списки збігались.
+// Сортування за капітанським рейтингом (шанс великого улову), а не за голим прогнозом:
+// для пов'язки важливий атакувальний потенціал, а не гарантовані 2 очки за появу.
+function rankCaptainCandidates(players, teamsMap, fixtures, currentGW, weights, n = 12) {
+  return players.filter(p => p.status === 'a' || p.status === 'd').filter(p => p.element_type === 3 || p.element_type === 4 || p.element_type === 2 && parseFloat(p.form) > 5).map(p => {
+    const cs = captainScore(p, teamsMap, fixtures, currentGW, weights);
+    const pred = predictPlayerPoints(p, teamsMap, fixtures, currentGW, 1, weights);
+    return {
+      ...p,
+      team: teamsMap[p.team],
+      pred: pred.total,
+      predNext: pred.total,
+      predFixtures: pred.fixtures,
+      breakdown: pred.breakdown,
+      capScore: cs.score,
+      haulProb: cs.haulProb,
+      xGI: cs.xGI
+    };
+  }).filter(p => p.pred > 0).sort((a, b) => b.capScore - a.capScore).slice(0, n);
+}
 function CaptainView({
   players,
   teams,
@@ -3421,25 +3442,7 @@ function CaptainView({
       className: "text-center text-xs text-stone-600"
     }, "\u0410 \u043F\u043E\u043A\u0438 \u0449\u043E \u2014 \u0433\u043B\u044F\u043D\u044C \u0442\u043E\u043F-\u0431\u043E\u043C\u0431\u0430\u0440\u0434\u0438\u0440\u0456\u0432 \u0441\u0435\u0437\u043E\u043D\u0443 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u0446\u0456 \xAB\u0414\u0430\u0448\u0431\u043E\u0440\u0434\xBB"));
   }
-  const candidates = useMemo(() => {
-    return players.filter(p => p.status === 'a' || p.status === 'd').filter(p => p.element_type === 3 || p.element_type === 4 || p.element_type === 2 && parseFloat(p.form) > 5).map(p => {
-      const cs = captainScore(p, teamsMap, fixtures, currentGW, weights);
-      const pred = predictPlayerPoints(p, teamsMap, fixtures, currentGW, 1, weights);
-      return {
-        ...p,
-        team: teamsMap[p.team],
-        pred: pred.total,
-        predFixtures: pred.fixtures,
-        breakdown: pred.breakdown,
-        capScore: cs.score,
-        haulProb: cs.haulProb,
-        xGI: cs.xGI
-      };
-    }).filter(p => p.pred > 0)
-    // Сортуємо за капітанським рейтингом, а не за голим прогнозом:
-    // для пов'язки важливий шанс великого улову, а не гарантовані 2 очки
-    .sort((a, b) => b.capScore - a.capScore).slice(0, 12);
-  }, [players, teamsMap, fixtures, currentGW, weights]);
+  const candidates = useMemo(() => rankCaptainCandidates(players, teamsMap, fixtures, currentGW, weights, 12), [players, teamsMap, fixtures, currentGW, weights]);
   if (candidates.length === 0) {
     return /*#__PURE__*/React.createElement(EmptyState, {
       message: "\u041D\u0435\u043C\u0430\u0454 \u0434\u0430\u043D\u0438\u0445 \u0434\u043B\u044F \u043F\u0440\u043E\u0433\u043D\u043E\u0437\u0443 \u043D\u0430 \u043D\u0430\u0441\u0442\u0443\u043F\u043D\u0438\u0439 \u0442\u0443\u0440 (\u043C\u043E\u0436\u043B\u0438\u0432\u043E, \u0441\u0435\u0437\u043E\u043D \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u043E)"
