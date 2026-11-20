@@ -594,7 +594,7 @@ const {
 } = React;
 
 // Маркер збірки — видно внизу сайту, зручно перевірити що завантажилась свіжа версія
-const BUILD_VERSION = '2026.11.13g';
+const BUILD_VERSION = '2026.11.20';
 
 // ============================================================
 // ICONS (inline lucide SVGs)
@@ -4718,6 +4718,141 @@ const CHIP_NAMES = {
   freehit: 'Free Hit',
   manager: 'Assistant Manager'
 };
+
+// ============================================================
+// ПОДВІЙНІ ТРАНСФЕРИ ДЛЯ «МІЙ СКЛАД»
+// Перебирає пари замін (продати A → купити A', продати B → купити B'),
+// де разом вкладаємось у банк, хоча одна із замін окремо була б задорога.
+// Рейтинг — squadScore (xP із поправкою на ризик хвилин, травми, календар);
+// гравці на лавці важать менше, бо їхні очки зазвичай не йдуть у залік.
+// ============================================================
+let DOUBLE_CACHE = {
+  key: null,
+  value: null
+};
+function planDoubleTransfers({
+  squad15,
+  players,
+  teamsMap,
+  fixtures,
+  currentGW,
+  weights,
+  bank,
+  xiIds,
+  horizon
+}) {
+  const key = [players.length, currentGW, bank, horizon, squad15.map(p => p.id + ':' + p.now_cost).join(','), JSON.stringify(weights || {})].join('|');
+  if (DOUBLE_CACHE.key === key && DOUBLE_CACHE.players === players) return DOUBLE_CACHE.value;
+  const squadIds = new Set(squad15.map(p => p.id));
+  const clubCount = {};
+  for (const p of squad15) clubCount[p.team] = (clubCount[p.team] || 0) + 1;
+  const rate = p => squadScore(p, teamsMap, fixtures, currentGW, horizon, weights);
+  const mine = new Map(squad15.map(p => [p.id, rate(p)]));
+
+  // Поріг «буде в старті»: найслабший польовий гравець поточної оптимальної одинадцятки
+  const xiOutfield = squad15.filter(p => xiIds.has(p.id) && p.element_type !== 1).map(p => mine.get(p.id).score);
+  const xiFloor = xiOutfield.length ? Math.min(...xiOutfield) : 0;
+  const gkStarter = Math.max(0, ...squad15.filter(p => p.element_type === 1 && xiIds.has(p.id)).map(p => mine.get(p.id).score));
+  const weightOf = (p, score, sold) => {
+    if (sold) return xiIds.has(p.id) ? 1 : p.element_type === 1 ? 0.05 : 0.3;
+    if (p.element_type === 1) return score > gkStarter ? 1 : 0.05;
+    return score > xiFloor ? 1 : 0.3;
+  };
+
+  // Ринок по позиціях: доступні гравці, що реально грають
+  const market = {
+    1: [],
+    2: [],
+    3: [],
+    4: []
+  };
+  for (const c of players) {
+    if (squadIds.has(c.id) || c.status !== 'a' || !(c.minutes > 0)) continue;
+    market[c.element_type].push(c);
+  }
+  const rated = {};
+  for (const pos of [1, 2, 3, 4]) {
+    rated[pos] = market[pos].map(c => ({
+      c,
+      s: rate(c)
+    })).filter(x => x.s.score > 0).sort((a, b) => a.c.now_cost - b.c.now_cost || b.s.score - a.s.score);
+  }
+
+  // Для кожного гравця складу — «парето-фронт» замін: за кожну ціну лише найкращий варіант
+  const moves = [];
+  for (const out of squad15) {
+    const so = mine.get(out.id);
+    const valOut = so.score * weightOf(out, so.score, true);
+    let bestSoFar = -Infinity;
+    for (const {
+      c,
+      s
+    } of rated[out.element_type]) {
+      if (s.score <= bestSoFar + 0.05) continue;
+      bestSoFar = s.score;
+      const gain = s.score * weightOf(c, s.score, false) - valOut;
+      moves.push({
+        out,
+        inn: c,
+        cost: c.now_cost - out.now_cost,
+        gain,
+        xpGain: s.pred - so.pred,
+        xpIn: s.pred,
+        xpOut: so.pred
+      });
+    }
+  }
+  const clubOk = ms => {
+    const cc = {
+      ...clubCount
+    };
+    for (const m of ms) {
+      cc[m.out.team]--;
+      cc[m.inn.team] = (cc[m.inn.team] || 0) + 1;
+    }
+    return ms.every(m => cc[m.inn.team] <= 3);
+  };
+  // Найкраща одинарна заміна в межах банку — планка, яку пара має перевершити
+  let bestSingle = 0;
+  for (const m of moves) if (m.cost <= bank && m.gain > bestSingle && clubOk([m])) bestSingle = m.gain;
+  const found = [];
+  const ups = moves.filter(m => m.gain > 0.3);
+  for (const a of ups) {
+    for (const b of moves) {
+      if (b.out.id === a.out.id || b.inn.id === a.inn.id) continue;
+      if (a.cost + b.cost > bank) continue;
+      if (a.cost <= bank && b.gain <= 0) continue; // a й так влазить — пара лише гірша
+      const gain = a.gain + b.gain;
+      if (gain < bestSingle + 0.8) continue; // пара має бути помітно кращою за одну заміну
+      if (a.xpGain + b.xpGain < 1.5) continue; // і давати реальний плюс в очках
+      if (!clubOk([a, b])) continue;
+      found.push({
+        moves: a.cost >= b.cost ? [a, b] : [b, a],
+        gain,
+        xpGain: a.xpGain + b.xpGain,
+        cost: a.cost + b.cost
+      });
+    }
+  }
+  found.sort((x, y) => y.gain - x.gain);
+  // Не показувати три варіації одного й того ж: різні гравці на продаж
+  const out = [],
+    seen = new Set();
+  for (const f of found) {
+    // кожен гравець (на продаж чи на купівлю) — щонайбільше в одній парі
+    const ids = f.moves.flatMap(m => ['o' + m.out.id, 'i' + m.inn.id]);
+    if (ids.some(x => seen.has(x))) continue;
+    ids.forEach(x => seen.add(x));
+    out.push(f);
+    if (out.length >= 3) break;
+  }
+  DOUBLE_CACHE = {
+    key,
+    players,
+    value: out
+  };
+  return out;
+}
 function MyTeamView({
   players,
   teams,
@@ -5175,6 +5310,21 @@ function MyTeamView({
             cands
           };
         });
+
+        // 5) Подвійні трансфери: перерозподіл грошей між позиціями.
+        //    Один гравець дешевшає (вивільняє гроші), другий — дорожчає на ці гроші.
+        //    Так можна дотягнутись до гравця, на якого одного банку не вистачає.
+        const pairs = planDoubleTransfers({
+          squad15,
+          players,
+          teamsMap,
+          fixtures,
+          currentGW,
+          weights,
+          bank,
+          xiIds,
+          horizon: ADVICE_HORIZON
+        });
         const chipPlan = planChips(squad15, teamsMap, fixtures, currentGW, weights, null, events, history.chips || []);
         advice = {
           captain,
@@ -5182,6 +5332,8 @@ function MyTeamView({
           bestXI,
           benchAdv,
           suggestions,
+          pairs,
+          bank,
           chipPlan,
           nextGW: rated[0].pred1.fixtures[0]?.gw ?? null
         };
@@ -5418,7 +5570,75 @@ function MyTeamView({
     className: "text-[12px] text-stone-500 ml-1.5"
   }, "\xA3", (c.now_cost / 10).toFixed(1), "m \xB7 ", /*#__PURE__*/React.createElement("span", {
     className: "text-lime-400 font-mono"
-  }, pred.total.toFixed(1), " xP")))))))), advice.chipPlan && /*#__PURE__*/React.createElement("div", {
+  }, pred.total.toFixed(1), " xP")))))))), advice.pairs && advice.pairs.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mt-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm uppercase tracking-wider text-stone-400 mb-1 flex items-center gap-2",
+    style: {
+      fontFamily: 'var(--font-sans)'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "refresh",
+    size: 14
+  }), " \u041F\u043E\u0434\u0432\u0456\u0439\u043D\u0456 \u0442\u0440\u0430\u043D\u0441\u0444\u0435\u0440\u0438"), /*#__PURE__*/React.createElement("div", {
+    className: "text-[12px] text-stone-500 mb-3",
+    style: {
+      fontFamily: 'var(--font-sans)'
+    }
+  }, "\u041F\u0435\u0440\u0435\u0440\u043E\u0437\u043F\u043E\u0434\u0456\u043B \u0433\u0440\u043E\u0448\u0435\u0439: \u043E\u0434\u043D\u0443 \u043F\u043E\u0437\u0438\u0446\u0456\u044E \u0434\u0435\u0448\u0435\u0432\u0448\u0430\u0454\u043C\u043E, \u043D\u0430 \u0437\u0432\u0456\u043B\u044C\u043D\u0435\u043D\u0456 \u0433\u0440\u043E\u0448\u0456 \u043F\u043E\u0441\u0438\u043B\u044E\u0454\u043C\u043E \u0456\u043D\u0448\u0443. \u0412 \u0431\u0430\u043D\u043A\u0443 \xA3", (advice.bank / 10).toFixed(1), "m."), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, advice.pairs.map((pr, pi) => {
+    const left = advice.bank - pr.cost;
+    return /*#__PURE__*/React.createElement("div", {
+      key: pi,
+      className: "rounded-xl border border-stone-800 bg-stone-900/30 p-3.5"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "space-y-2"
+    }, pr.moves.map(m => /*#__PURE__*/React.createElement("div", {
+      key: m.out.id,
+      className: "flex items-center gap-2 flex-wrap text-sm",
+      style: {
+        fontFamily: 'var(--font-sans)'
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => onPlayerClick(m.out),
+      className: "inline-flex items-center gap-2 hover:opacity-80 min-w-0"
+    }, /*#__PURE__*/React.createElement(PlayerPhoto, {
+      player: m.out,
+      size: 28
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "text-stone-400 line-through decoration-stone-600"
+    }, m.out.web_name), /*#__PURE__*/React.createElement("span", {
+      className: "text-[12px] text-stone-500 font-mono"
+    }, "\xA3", (m.out.now_cost / 10).toFixed(1))), /*#__PURE__*/React.createElement("span", {
+      className: "text-stone-600"
+    }, "\u2192"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => onPlayerClick(m.inn),
+      className: "inline-flex items-center gap-2 hover:opacity-80 min-w-0"
+    }, /*#__PURE__*/React.createElement(PlayerPhoto, {
+      player: m.inn,
+      size: 28
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "font-semibold"
+    }, m.inn.web_name), /*#__PURE__*/React.createElement("span", {
+      className: "text-[12px] text-stone-500 font-mono"
+    }, "\xA3", (m.inn.now_cost / 10).toFixed(1))), /*#__PURE__*/React.createElement("span", {
+      className: `text-[12px] font-mono ml-auto ${m.cost > 0 ? 'text-amber-400' : 'text-lime-400'}`
+    }, m.cost > 0 ? '−' : '+', "\xA3", (Math.abs(m.cost) / 10).toFixed(1), "m")))), /*#__PURE__*/React.createElement("div", {
+      className: "mt-2.5 pt-2.5 border-t border-stone-800 flex items-center gap-x-4 gap-y-1 flex-wrap text-[12px] text-stone-500"
+    }, /*#__PURE__*/React.createElement("span", null, "xP \u0437\u0430 ", ADVICE_HORIZON, " \u0442\u0443\u0440\u0456\u0432: ", /*#__PURE__*/React.createElement("span", {
+      className: `font-mono ${pr.xpGain >= 0 ? 'text-lime-400' : 'text-red-400'}`
+    }, pr.xpGain >= 0 ? '+' : '', pr.xpGain.toFixed(1))), /*#__PURE__*/React.createElement("span", null, "\u0437 \u043C\u0456\u043D\u0443\u0441\u043E\u043C 4 \u0437\u0430 \u043F\u043B\u0430\u0442\u043D\u0438\u0439 \u0442\u0440\u0430\u043D\u0441\u0444\u0435\u0440: ", /*#__PURE__*/React.createElement("span", {
+      className: `font-mono ${pr.xpGain - 4 >= 0 ? 'text-stone-300' : 'text-red-400'}`
+    }, pr.xpGain - 4 >= 0 ? '+' : '', (pr.xpGain - 4).toFixed(1))), /*#__PURE__*/React.createElement("span", null, "\u0437\u0430\u043B\u0438\u0448\u043E\u043A \u0443 \u0431\u0430\u043D\u043A\u0443: ", /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-stone-300"
+    }, "\xA3", (left / 10).toFixed(1), "m"))));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-stone-600 mt-2",
+    style: {
+      fontFamily: 'var(--font-sans)'
+    }
+  }, "\u0426\u0456\u043D\u0438 \u2014 \u043F\u043E\u0442\u043E\u0447\u043D\u0456. \u042F\u043A\u0449\u043E \u0433\u0440\u0430\u0432\u0435\u0446\u044C \u043F\u043E\u0434\u043E\u0440\u043E\u0436\u0447\u0430\u0432, \u043F\u043E\u043A\u0438 \u0431\u0443\u0432 \u0443 \u0442\u0435\u0431\u0435, FPL \u043F\u043E\u0432\u0435\u0440\u043D\u0435 \u0437\u0430 \u043D\u044C\u043E\u0433\u043E \u043C\u0435\u043D\u0448\u0435 (\u043F\u043E\u043B\u043E\u0432\u0438\u043D\u0443 \u043F\u0440\u0438\u0440\u043E\u0441\u0442\u0443) \u2014 \u0437\u0432\u0456\u0440 \u0441\u0443\u043C\u0443 \u0432 \u0433\u0440\u0456 \u043F\u0435\u0440\u0435\u0434 \u043F\u0456\u0434\u0442\u0432\u0435\u0440\u0434\u0436\u0435\u043D\u043D\u044F\u043C.")), advice.chipPlan && /*#__PURE__*/React.createElement("div", {
     className: "mt-5"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-sm uppercase tracking-wider text-stone-400 mb-1 flex items-center gap-2",
